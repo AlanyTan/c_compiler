@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C++ 编译器 - V86 现代版本</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/default.css" rel="stylesheet">
+    
+    <!-- ACE Editor CSS -->
+    <style>
+        #editor {
+            position: relative;
+            height: 400px;
+            width: 100%;
+            font-size: 14px;
+        }
+        
+        #terminal {
+            background-color: #000;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            height: 300px;
+            overflow-y: scroll;
+            padding: 10px;
+            white-space: pre-wrap;
+            border: 1px solid #ccc;
+        }
+        
+        #screen_container {
+            width: 800px;
+            height: 400px;
+            border: 1px solid #ccc;
+            background-color: #000;
+            margin: 10px auto;
+        }
+        
+        .status-panel {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 10px 0;
+        }
+        
+        .system-info {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #555;
+        }
+        
+        .error-highlight {
+            background-color: #ffe6e6;
+            border-left: 3px solid #ff0000;
+        }
+        
+        .success-highlight {
+            background-color: #e6ffe6;
+            border-left: 3px solid #00aa00;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.3);
+            border-radius: 50%;
+            border-top-color: #000;
+            animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-md-12">
+                <nav class="navbar navbar-default">
+                    <div class="container-fluid">
+                        <div class="navbar-header">
+                            <span class="navbar-brand">C++ 编译器 - V86 现代版本</span>
+                        </div>
+                        <div class="navbar-collapse">
+                            <div class="navbar-text navbar-right">
+                                <span id="system-status" class="label label-warning">系统初始化中...</span>
+                                <span id="memory-info" class="system-info">内存: 128MB</span>
+                            </div>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Code Editor Panel -->
+            <div class="col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4>代码编辑器</h4>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-default" id="new-file-btn">新建</button>
+                            <button type="button" class="btn btn-sm btn-primary" id="upload-btn">上传文件</button>
+                            <button type="button" class="btn btn-sm btn-info" id="download-btn">下载</button>
+                        </div>
+                        <input type="file" id="file-input" style="display: none;" accept=".cpp,.c,.h,.hpp">
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-group">
+                            <label for="filename">文件名:</label>
+                            <input type="text" class="form-control" id="filename" value="main.cpp" placeholder="输入文件名">
+                        </div>
+                        <div id="editor"></div>
+                    </div>
+                    <div class="panel-footer">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-success" id="compile-run-btn">
+                                <span class="glyphicon glyphicon-play"></span> 编译运行
+                            </button>
+                            <button type="button" class="btn btn-warning" id="compile-only-btn">
+                                <span class="glyphicon glyphicon-cog"></span> 仅编译
+                            </button>
+                            <button type="button" class="btn btn-info" id="format-btn">
+                                <span class="glyphicon glyphicon-align-left"></span> 格式化
+                            </button>
+                        </div>
+                        <div class="btn-group pull-right" role="group">
+                            <button type="button" class="btn btn-default" id="settings-btn">
+                                <span class="glyphicon glyphicon-cog"></span> 设置
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compilation Options -->
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h5>编译选项</h5>
+                    </div>
+                    <div class="panel-body">
+                        <div class="form-group">
+                            <label for="compiler-flags">编译器标志:</label>
+                            <input type="text" class="form-control" id="compiler-flags" 
+                                   value="-std=c++17 -Wall -Wextra" 
+                                   placeholder="输入 GCC 编译器选项">
+                        </div>
+                        <div class="form-group">
+                            <label for="cpp-standard">C++ 标准:</label>
+                            <select class="form-control" id="cpp-standard">
+                                <option value="c++11">C++11</option>
+                                <option value="c++14">C++14</option>
+                                <option value="c++17" selected>C++17</option>
+                                <option value="c++20">C++20</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Terminal and Output Panel -->
+            <div class="col-md-6">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4>终端输出</h4>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-default" id="clear-terminal-btn">清空</button>
+                            <button type="button" class="btn btn-sm btn-warning" id="restart-vm-btn">重启虚拟机</button>
+                            <button type="button" class="btn btn-sm btn-info" id="system-info-btn">系统信息</button>
+                            <button type="button" class="btn btn-sm btn-danger" id="debug-vm-btn">调试模式</button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div id="terminal"></div>
+                    </div>
+                </div>
+
+                <!-- System Status Panel -->
+                <div class="status-panel">
+                    <h5>系统状态</h5>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>CPU:</strong> <span id="cpu-info">x86 虚拟处理器</span><br>
+                            <strong>内存:</strong> <span id="ram-info">128MB RAM</span><br>
+                            <strong>编译器:</strong> <span id="compiler-info">GCC 11+</span>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>状态:</strong> <span id="vm-status">初始化中</span><br>
+                            <strong>性能:</strong> <span id="performance-info">标准模式</span><br>
+                            <strong>功能:</strong> <span id="features-info">C++20 支持</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Error Display Panel -->
+                <div class="panel panel-default" id="error-panel" style="display: none;">
+                    <div class="panel-heading">
+                        <h5>编译错误</h5>
+                    </div>
+                    <div class="panel-body">
+                        <pre id="error-output" class="error-highlight"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- V86 Emulator Screen (Hidden - using headless mode) -->
+        <div class="row" style="display: none;">
+            <div class="col-md-12">
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <h4>虚拟机控制台 (无图形模式)</h4>
+                    </div>
+                    <div class="panel-body text-center">
+                        <div id="screen_container"></div>
+                        <p>使用无图形模式，所有输出显示在终端输出面板中。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- V86 Library - Load from multiple sources -->
+    <script>
+        // Try to load v86 from multiple sources
+        function loadV86() {
+            return new Promise((resolve, reject) => {
+                // Check if already loaded
+                if (typeof V86Starter !== 'undefined') {
+                    console.log('V86 already loaded');
+                    resolve();
+                    return;
+                }
+                
+                // Try local first since we have it downloaded
+                const localScript = document.createElement('script');
+                localScript.onload = () => {
+                    console.log('V86 loaded from local file');
+                    // Wait a bit for V86 constructor to be available
+                    setTimeout(() => {
+                        if (typeof V86Starter !== 'undefined') {
+                            resolve();
+                        } else if (typeof V86 !== 'undefined') {
+                            // Make V86 available as V86Starter for compatibility
+                            window.V86Starter = V86;
+                            console.log('V86 found in local file, created V86Starter alias');
+                            resolve();
+                        } else {
+                            reject(new Error('V86 constructor not available after local loading'));
+                        }
+                    }, 100);
+                };
+                localScript.onerror = () => {
+                    console.warn('Local v86 failed, trying CDN...');
+                    // Try CDN as fallback
+                    const cdnScript = document.createElement('script');
+                    cdnScript.src = 'https://unpkg.com/v86@latest/build/libv86.js';
+                    cdnScript.onload = () => {
+                        console.log('V86 loaded from CDN');
+                        setTimeout(() => {
+                            if (typeof V86Starter !== 'undefined') {
+                                resolve();
+                            } else if (typeof V86 !== 'undefined') {
+                                // Make V86 available as V86Starter for compatibility
+                                window.V86Starter = V86;
+                                resolve();
+                            } else {
+                                reject(new Error('V86 constructor not available after CDN loading'));
+                            }
+                        }, 100);
+                    };
+                    cdnScript.onerror = () => {
+                        reject(new Error('V86 library not found in local or CDN'));
+                    };
+                    document.head.appendChild(cdnScript);
+                };
+                localScript.src = 'build/libv86.js';
+                document.head.appendChild(localScript);
+            });
+        }
+    </script>
+    
+    <!-- jQuery and Bootstrap -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="bootstrap/js/bootstrap.min.js"></script>
+    
+    <!-- ACE Editor -->
+    <script src="ace-editor-src-min-noconflict/ace.js"></script>
+    <script src="ace-editor-src-min-noconflict/mode-c_cpp.js"></script>
+    <script src="ace-editor-src-min-noconflict/theme-monokai.js"></script>
+    <script src="ace-editor-src-min-noconflict/ext-language_tools.js"></script>
+    <script src="ace-editor-src-min-noconflict/ext-beautify.js"></script>
+    
+    <!-- V86 Configuration and Interface -->
+    <script src="v86-sys/v86-interface.js"></script>
+
+    <script>
+        // Simplified V86 Configuration  
+        const V86_SIMPLE_CONFIG = {
+            wasm_path: "build/v86.wasm", // Local wasm file matching CDN version
+            memory_size: 128 * 1024 * 1024,
+            vga_memory_size: 8 * 1024 * 1024,
+            // screen_container will be set during initialization
+            autostart: true,
+            disable_jit: false,
+            log_level: 1
+        };
+        
+        // Check for required files
+        async function checkRequiredFiles() {
+            const requiredFiles = [
+                'bios/seabios.bin',
+                'bios/vgabios.bin', 
+                'v86-sys/alpine-linux.iso',
+                'build/libv86.js',
+                'build/v86.wasm'
+            ];
+            
+            const missingFiles = [];
+            const fileDetails = {};
+            
+            for (const file of requiredFiles) {
+                try {
+                    console.log(`Checking file: ${file}`);
+                    const response = await fetch(file, { method: 'HEAD' });
+                    if (response.ok) {
+                        const size = response.headers.get('content-length');
+                        fileDetails[file] = { exists: true, size: size || 'unknown' };
+                        console.log(`✅ ${file} - Size: ${size || 'unknown'} bytes`);
+                    } else {
+                        console.log(`❌ ${file} - HTTP ${response.status}`);
+                        missingFiles.push(file);
+                        fileDetails[file] = { exists: false, status: response.status };
+                    }
+                } catch (error) {
+                    console.log(`❌ ${file} - Error: ${error.message}`);
+                    missingFiles.push(file);
+                    fileDetails[file] = { exists: false, error: error.message };
+                }
+            }
+            
+            console.log('File check results:', fileDetails);
+            return { missingFiles, fileDetails };
+        }
+        // Global variables
+        let editor;
+        let v86Interface;
+        let isSystemReady = false;
+        let missingFiles = [];
+
+        // Default C++ code
+        const DEFAULT_CPP_CODE = `#include <iostream>
+#include <string>
+#include <vector>
+
+int main() {
+    std::cout << "欢迎使用现代 C++ 编译器!" << std::endl;
+    std::cout << "支持 C++17/20 标准特性" << std::endl;
+    
+    // 演示现代 C++ 特性
+    std::vector<std::string> features = {
+        "自动类型推导",
+        "范围 for 循环", 
+        "Lambda 表达式",
+        "智能指针",
+        "并发编程支持"
+    };
+    
+    std::cout << "\\n现代 C++ 特性:" << std::endl;
+    for (const auto& feature : features) {
+        std::cout << "- " << feature << std::endl;
+    }
+    
+    return 0;
+}`;
+
+        /**
+         * Initialize the application
+         */
+        async function initializeApp() {
+            console.log('=== Initializing V86-based C++ Compiler ===');
+            
+            // Initialize ACE editor first
+            initializeEditor();
+            
+            // Set up event handlers
+            setupEventHandlers();
+            
+            // Check for required files with detailed logging
+            updateSystemStatus('检查系统文件...', 'info');
+            const { missingFiles, fileDetails } = await checkRequiredFiles();
+            
+            // Show file check results in terminal
+            appendToTerminal('=== 系统文件检查 ===\n');
+            Object.entries(fileDetails).forEach(([file, details]) => {
+                if (details.exists) {
+                    appendToTerminal(`✅ ${file} (${details.size} bytes)\n`);
+                } else {
+                    appendToTerminal(`❌ ${file} - ${details.error || 'HTTP ' + details.status}\n`);
+                }
+            });
+            appendToTerminal('\n');
+            
+            if (missingFiles.length > 0) {
+                console.error('Missing required files:', missingFiles);
+                handleMissingFiles(missingFiles, fileDetails);
+            } else {
+                // Try to load V86 library - local first, then CDN fallback
+                try {
+                    updateSystemStatus('加载V86库...', 'info');
+                    appendToTerminal('正在加载 V86 虚拟机库...\n');
+                    
+                    await loadV86();
+                    console.log('V86 library loaded successfully');
+                    
+                    updateSystemStatus('初始化虚拟机...', 'warning');
+                    appendToTerminal('V86 库加载成功，正在初始化虚拟机...\n');
+                    
+                    await initializeV86();
+                } catch (error) {
+                    console.error('V86 initialization failed:', error);
+                    handleV86LoadError(error);
+                }
+            }
+            
+            console.log('Application initialization complete');
+        }
+
+        /**
+         * Initialize ACE editor
+         */
+        function initializeEditor() {
+            editor = ace.edit("editor");
+            editor.setTheme("ace/theme/monokai");
+            editor.session.setMode("ace/mode/c_cpp");
+            editor.setValue(DEFAULT_CPP_CODE, -1);
+            
+            // Enable language tools
+            ace.require("ace/ext/language_tools");
+            editor.setOptions({
+                enableBasicAutocompletion: true,
+                enableSnippets: true,
+                enableLiveAutocompletion: true,
+                fontSize: 14,
+                showPrintMargin: false,
+                wrap: true
+            });
+
+            console.log('ACE editor initialized');
+        }
+
+        /**
+         * Initialize V86 emulator
+         */
+        async function initializeV86() {
+            try {
+                updateSystemStatus('正在启动虚拟机...', 'warning');
+                
+                // Try multiple approaches to get console working
+                console.log('Configuring V86 with multiple console methods');
+                const v86Config = {
+                    ...V86_SIMPLE_CONFIG,
+                    // No screen_container - headless mode only
+                    bios: { url: "bios/seabios.bin" },
+                    vga_bios: { url: "bios/vgabios.bin" },
+                    cdrom: { url: "v86-sys/alpine-linux.iso" },
+                    // Try multiple serial console configurations
+                    cmdline: [
+                        "console=ttyS0,115200n8",
+                        "console=tty0", 
+                        "earlyprintk=serial,ttyS0,115200",
+                        "alpine_dev=cdrom:iso9660",
+                        "modloop=/boot/modloop-lts",
+                        "quiet"
+                    ].join(" "),
+                    // Enable all serial ports and try different configurations
+                    uart1: true,
+                    uart2: true,  
+                    uart3: true,
+                    // Add network interface in case we need it
+                    network_relay_url: "wisp://relay.widgetry.org/"
+                };
+                
+                appendToTerminal('配置 Alpine Linux 使用串口控制台...\n');
+                appendToTerminal('启动参数: console=ttyS0,115200 console=tty0\n');
+                appendToTerminal('等待系统启动和串口输出...\n');
+                
+                v86Interface = new V86Interface(v86Config);
+                
+                // Set up event handlers
+                v86Interface.onSystemReady = handleSystemReady;
+                v86Interface.onTerminalOutput = handleTerminalOutput;
+                v86Interface.onCompilationComplete = handleCompilationComplete;
+                
+                // Initialize the emulator
+                await v86Interface.initialize();
+                
+                // Wait for system to be properly ready
+                console.log('Waiting for system boot...');
+                
+                // Set up a timeout to check if we're getting serial output
+                let serialOutputTimeout = setTimeout(() => {
+                    console.log('Checking V86 status after 15 seconds...');
+                    if (v86Interface) {
+                        v86Interface.checkV86Status();
+                    }
+                    
+                    if (!v86Interface.serialOutputReceived && !v86Interface.screenOutputReceived) {
+                        console.warn('No console output received after 15 seconds');
+                        appendToTerminal('\\n⚠️ 警告: 15秒内未收到控制台输出\\n');
+                        appendToTerminal('调试信息:\\n');
+                        appendToTerminal('1. V86 事件: ' + Array.from(v86Interface.receivedEvents || []).join(', ') + '\\n');
+                        appendToTerminal('2. 串口输出: ' + (v86Interface.serialOutputReceived ? '已接收' : '未接收') + '\\n');
+                        appendToTerminal('3. 屏幕输出: ' + (v86Interface.screenOutputReceived ? '已接收' : '未接收') + '\\n');
+                        appendToTerminal('\\n可能的问题:\\n');
+                        appendToTerminal('1. Alpine Linux ISO 不支持串口控制台\\n');
+                        appendToTerminal('2. V86 配置问题\\n');
+                        appendToTerminal('3. 启动参数不正确\\n');
+                        appendToTerminal('4. VM 启动失败\\n');
+                        appendToTerminal('\\n尝试手动发送测试命令...\\n');
+                        
+                        // Try to send a test command anyway
+                        if (v86Interface && v86Interface.emulator) {
+                            console.log('Attempting to send test command to VM...');
+                            v86Interface.sendCommandNoWait('echo \"Manual test command\"');
+                        }
+                    } else {
+                        console.log('Console output confirmed - communication working');
+                        appendToTerminal('\\n✅ 控制台连接正常\\n');
+                    }
+                }, 15000);
+                
+                setTimeout(() => {
+                    console.log('System should be ready now');
+                    appendToTerminal('等待系统启动完成...\\n');
+                    clearTimeout(serialOutputTimeout);
+                }, 5000);
+                
+                console.log('V86 interface initialized');
+                
+            } catch (error) {
+                console.error('Failed to initialize V86:', error);
+                updateSystemStatus('虚拟机启动失败', 'danger');
+                appendToTerminal('错误: 无法启动虚拟机系统\\n' + error.message + '\\n');
+            }
+        }
+
+        /**
+         * Handle system ready event
+         */
+        function handleSystemReady() {
+            console.log('System is ready');
+            isSystemReady = true;
+            updateSystemStatus('系统运行中', 'success');
+            appendToTerminal('=== V86 C++ 编译环境已就绪 ===\\n');
+            appendToTerminal('内存: 128MB | 处理器: x86 | 编译器: GCC 11+\\n');
+            appendToTerminal('支持 C++17/20 标准和现代开发工具\n');
+            appendToTerminal('无图形模式运行中，控制台输出显示在此终端\n');
+            appendToTerminal('系统状态: 串口控制台已连接\n\n');
+            
+            // Get system information
+            v86Interface.getSystemInfo();
+        }
+
+        /**
+         * Handle terminal output
+         */
+        function handleTerminalOutput(output) {
+            // Debug: Log first few characters received and check for boot messages
+            if (output && output.length > 0) {
+                console.log('Terminal output received:', JSON.stringify(output.slice(0, 20)));
+                
+                // Check for Alpine Linux boot indicators
+                if (output.includes('Welcome to Alpine Linux') || 
+                    output.includes('alpine') ||
+                    output.includes('login:') ||
+                    output.includes('localhost') ||
+                    output.includes('# ') ||
+                    output.includes('$ ')) {
+                    console.log('Alpine Linux boot detected in output!');
+                    appendToTerminal('\n[检测到 Alpine Linux 启动输出]\n');
+                }
+            }
+            appendToTerminal(output);
+        }
+
+        /**
+         * Handle compilation completion
+         */
+        function handleCompilationComplete(output) {
+            console.log('Compilation completed:', output);
+            
+            // Parse compilation output for errors
+            const errors = parseGccOutput(output);
+            
+            if (errors.length > 0) {
+                showErrorPanel(errors);
+                updateErrorAnnotations(errors);
+                updateSystemStatus('编译失败', 'danger');
+            } else {
+                hideErrorPanel();
+                clearErrorAnnotations();
+                updateSystemStatus('编译成功', 'success');
+            }
+        }
+
+        /**
+         * Set up event handlers
+         */
+        function setupEventHandlers() {
+            // Compile and run button
+            document.getElementById('compile-run-btn').addEventListener('click', compileAndRun);
+            
+            // Compile only button
+            document.getElementById('compile-only-btn').addEventListener('click', compileOnly);
+            
+            // File operations
+            document.getElementById('new-file-btn').addEventListener('click', newFile);
+            document.getElementById('upload-btn').addEventListener('click', uploadFile);
+            document.getElementById('download-btn').addEventListener('click', downloadFile);
+            document.getElementById('file-input').addEventListener('change', handleFileUpload);
+            
+            // Terminal operations
+            document.getElementById('clear-terminal-btn').addEventListener('click', clearTerminal);
+            document.getElementById('restart-vm-btn').addEventListener('click', restartVM);
+            document.getElementById('system-info-btn').addEventListener('click', showSystemInfo);
+            document.getElementById('debug-vm-btn').addEventListener('click', debugVM);
+            
+            // Format code
+            document.getElementById('format-btn').addEventListener('click', formatCode);
+            
+            // C++ standard selection
+            document.getElementById('cpp-standard').addEventListener('change', updateCompilerFlags);
+        }
+
+        /**
+         * Compile and run code
+         */
+        async function compileAndRun() {
+            if (!isSystemReady) {
+                alert('系统尚未就绪，请等待虚拟机启动完成');
+                return;
+            }
+
+            const filename = document.getElementById('filename').value || 'main.cpp';
+            const code = editor.getValue();
+            const flags = document.getElementById('compiler-flags').value;
+
+            try {
+                updateSystemStatus('编译运行中...', 'info');
+                
+                // Upload file to VM
+                await v86Interface.uploadFile(filename, code);
+                
+                // Compile and run
+                await v86Interface.compileAndRun(filename, flags);
+                
+            } catch (error) {
+                console.error('Compilation failed:', error);
+                appendToTerminal('编译错误: ' + error.message + '\\n');
+                updateSystemStatus('编译失败', 'danger');
+            }
+        }
+
+        /**
+         * Compile only (no execution)
+         */
+        async function compileOnly() {
+            if (!isSystemReady) {
+                alert('系统尚未就绪，请等待虚拟机启动完成');
+                return;
+            }
+
+            const filename = document.getElementById('filename').value || 'main.cpp';
+            const code = editor.getValue();
+            const flags = document.getElementById('compiler-flags').value;
+
+            try {
+                updateSystemStatus('编译中...', 'info');
+                
+                // Upload file to VM
+                await v86Interface.uploadFile(filename, code);
+                
+                // Compile without running
+                v86Interface.sendCommand(`cd /home/user && g++ ${flags} ${filename} -o program`);
+                
+            } catch (error) {
+                console.error('Compilation failed:', error);
+                updateSystemStatus('编译失败', 'danger');
+            }
+        }
+
+        /**
+         * Create new file
+         */
+        function newFile() {
+            editor.setValue(DEFAULT_CPP_CODE, -1);
+            document.getElementById('filename').value = 'main.cpp';
+            clearErrorAnnotations();
+            hideErrorPanel();
+        }
+
+        /**
+         * Upload file
+         */
+        function uploadFile() {
+            document.getElementById('file-input').click();
+        }
+
+        /**
+         * Handle file upload
+         */
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                editor.setValue(e.target.result, -1);
+                document.getElementById('filename').value = file.name;
+            };
+            reader.readAsText(file);
+        }
+
+        /**
+         * Download current file
+         */
+        function downloadFile() {
+            const filename = document.getElementById('filename').value || 'main.cpp';
+            const content = editor.getValue();
+            
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        /**
+         * Clear terminal
+         */
+        function clearTerminal() {
+            document.getElementById('terminal').textContent = '';
+        }
+
+        /**
+         * Restart VM
+         */
+        function restartVM() {
+            updateSystemStatus('重启虚拟机中...', 'warning');
+            isSystemReady = false;
+            
+            if (v86Interface) {
+                v86Interface.restart();
+            }
+            
+            clearTerminal();
+            appendToTerminal('正在重启虚拟机系统...\\n');
+        }
+
+        /**
+         * Debug VM status and force tests
+         */
+        function debugVM() {
+            appendToTerminal('\\n=== 调试模式激活 ===\\n');
+            
+            if (!v86Interface) {
+                appendToTerminal('错误: V86 接口未初始化\\n');
+                return;
+            }
+            
+            appendToTerminal('执行全面系统检查...\\n');
+            v86Interface.checkV86Status();
+            
+            appendToTerminal('尝试强制测试...\\n');
+            v86Interface.forceTest();
+            
+            appendToTerminal('发送基础键盘输入...\\n');
+            if (v86Interface.emulator) {
+                // Send Enter, then 'ls', then Enter
+                v86Interface.emulator.serial0_send(13); // Enter
+                setTimeout(() => {
+                    const cmd = 'ls -la';
+                    for (let i = 0; i < cmd.length; i++) {
+                        v86Interface.emulator.serial0_send(cmd.charCodeAt(i));
+                    }
+                    v86Interface.emulator.serial0_send(13);
+                }, 1000);
+            }
+            
+            appendToTerminal('调试命令已发送，请等待响应...\\n');
+        }
+
+        /**
+         * Show system information
+         */
+        function showSystemInfo() {
+            if (v86Interface && isSystemReady) {
+                v86Interface.getSystemInfo();
+            } else {
+                appendToTerminal('系统信息: V86 x86 虚拟机，128MB RAM，GCC 11+ 编译器\\n');
+            }
+        }
+
+        /**
+         * Format code
+         */
+        function formatCode() {
+            // Use ACE's beautify extension
+            ace.require("ace/ext/beautify").beautify(editor.session);
+        }
+
+        /**
+         * Update compiler flags based on C++ standard
+         */
+        function updateCompilerFlags() {
+            const standard = document.getElementById('cpp-standard').value;
+            const currentFlags = document.getElementById('compiler-flags').value;
+            
+            // Replace existing standard flag or add new one
+            const newFlags = currentFlags.replace(/-std=c\+\+\d+/, '') + ' -std=' + standard;
+            document.getElementById('compiler-flags').value = newFlags.trim();
+        }
+
+        /**
+         * Append text to terminal
+         */
+        function appendToTerminal(text) {
+            const terminal = document.getElementById('terminal');
+            terminal.textContent += text;
+            terminal.scrollTop = terminal.scrollHeight;
+        }
+
+        /**
+         * Update system status
+         */
+        function updateSystemStatus(message, type) {
+            const statusElement = document.getElementById('system-status');
+            statusElement.textContent = message;
+            statusElement.className = 'label label-' + type;
+        }
+
+        /**
+         * Parse GCC output for errors
+         */
+        function parseGccOutput(output) {
+            const errors = [];
+            const lines = output.split('\\n');
+            
+            for (const line of lines) {
+                // Parse GCC error format: filename:line:column: type: message
+                const match = line.match(/([^:]+):(\\d+):(\\d+):\\s*(\\w+):\\s*(.+)/);
+                if (match) {
+                    errors.push({
+                        file: match[1],
+                        line: parseInt(match[2]),
+                        column: parseInt(match[3]),
+                        type: match[4],
+                        message: match[5]
+                    });
+                }
+            }
+            
+            return errors;
+        }
+
+        /**
+         * Show error panel
+         */
+        function showErrorPanel(errors) {
+            const panel = document.getElementById('error-panel');
+            const output = document.getElementById('error-output');
+            
+            let errorText = '';
+            for (const error of errors) {
+                errorText += `${error.file}:${error.line}:${error.column}: ${error.type}: ${error.message}\\n`;
+            }
+            
+            output.textContent = errorText;
+            panel.style.display = 'block';
+        }
+
+        /**
+         * Hide error panel
+         */
+        function hideErrorPanel() {
+            document.getElementById('error-panel').style.display = 'none';
+        }
+
+        /**
+         * Update error annotations in editor
+         */
+        function updateErrorAnnotations(errors) {
+            const annotations = errors.map(error => ({
+                row: error.line - 1,
+                column: error.column,
+                text: error.message,
+                type: error.type === 'error' ? 'error' : 'warning'
+            }));
+            
+            editor.session.setAnnotations(annotations);
+        }
+
+        /**
+         * Clear error annotations
+         */
+        function clearErrorAnnotations() {
+            editor.session.setAnnotations([]);
+        }
+
+        /**
+         * Handle missing files
+         */
+        function handleMissingFiles(missingFiles, fileDetails) {
+            updateSystemStatus('缺少系统文件', 'danger');
+            
+            let message = '以下文件缺失，需要下载:\n\n';
+            missingFiles.forEach(file => {
+                message += '❌ ' + file + '\n';
+            });
+            
+            message += '\n📋 设置说明:\n';
+            message += '1. 下载 SeaBIOS: bios/seabios.bin\n';
+            message += '2. 下载 VGA BIOS: bios/vgabios.bin\n';
+            message += '3. 下载 Alpine Linux: v86-sys/alpine-linux.iso\n';
+            message += '\n详情请参考 V86_MIGRATION_COMPLETE.md';
+            
+            appendToTerminal(message);
+            
+            // Show download instructions
+            showDownloadInstructions();
+        }
+        
+        /**
+         * Handle V86 load error
+         */
+        function handleV86LoadError(error) {
+            updateSystemStatus('V86 库加载失败', 'danger');
+            appendToTerminal('❌ V86 emulator library failed to load\n');
+            appendToTerminal('Error: ' + error.message + '\n\n');
+            appendToTerminal('📋 解决方案:\n');
+            appendToTerminal('1. 检查网络连接\n');
+            appendToTerminal('2. 下载本地 v86 库到 v86-lib/ 目录\n');
+            appendToTerminal('3. 参考 V86_MIGRATION_COMPLETE.md 设置说明\n');
+        }
+        
+        /**
+         * Show download instructions
+         */
+        function showDownloadInstructions() {
+            const instructions = `
+📥 下载链接和说明:
+
+1. V86 库文件:
+   - libv86.js: https://github.com/copy/v86/releases
+   - v86.wasm: https://github.com/copy/v86/releases
+   
+2. BIOS 文件:
+   - SeaBIOS: https://github.com/copy/v86/raw/master/bios/seabios.bin
+   - VGA BIOS: https://github.com/copy/v86/raw/master/bios/vgabios.bin
+   
+3. Alpine Linux ISO:
+   - 下载: https://dl-cdn.alpinelinux.org/alpine/v3.18/releases/x86_64/alpine-standard-3.18.4-x86_64.iso
+   - 重命名为: v86-sys/alpine-linux.iso
+
+完成下载后刷新页面即可使用现代 C++ 编译环境！
+`;
+            appendToTerminal(instructions);
+        }
+        
+        // Initialize the application when page loads
+        window.addEventListener('load', initializeApp);
+    </script>
+</body>
+</html>
