@@ -28,6 +28,27 @@
             padding: 10px;
             white-space: pre-wrap;
             border: 1px solid #ccc;
+            cursor: text;
+            outline: none;
+        }
+        
+        #terminal:focus {
+            border: 1px solid #4CAF50;
+            box-shadow: 0 0 5px rgba(76, 175, 80, 0.5);
+        }
+        
+        /* ANSI Terminal Colors */
+        #terminal .serial-blue { 
+            color: #5c5cff !important; 
+            font-weight: bold !important;
+        }
+        #terminal .serial-green { 
+            color: #00ff00 !important; 
+            font-weight: bold !important;
+        }
+        #terminal .serial-cyan { 
+            color: #00ffff !important; 
+            font-weight: bold !important;
         }
         
         #screen_container {
@@ -36,6 +57,14 @@
             border: 1px solid #ccc;
             background-color: #000;
             margin: 10px auto;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #screen_container canvas {
+            display: block !important;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
         }
         
         .status-panel {
@@ -89,7 +118,7 @@
                         <div class="navbar-collapse">
                             <div class="navbar-text navbar-right">
                                 <span id="system-status" class="label label-warning">系统初始化中...</span>
-                                <span id="memory-info" class="system-info">内存: 128MB</span>
+                                <span id="memory-info" class="system-info">内存:512 MB</span>
                             </div>
                         </div>
                     </div>
@@ -169,13 +198,17 @@
                         <h4>终端输出</h4>
                         <div class="btn-group" role="group">
                             <button type="button" class="btn btn-sm btn-default" id="clear-terminal-btn">清空</button>
+                            <button type="button" class="btn btn-sm btn-primary" id="toggle-console-btn">图形控制台</button>
                             <button type="button" class="btn btn-sm btn-warning" id="restart-vm-btn">重启虚拟机</button>
+                            <button type="button" class="btn btn-sm btn-success" id="save-state-btn">保存状态</button>
+                            <button type="button" class="btn btn-sm btn-info" id="enable-network-btn">启用网络</button>
                             <button type="button" class="btn btn-sm btn-info" id="system-info-btn">系统信息</button>
                             <button type="button" class="btn btn-sm btn-danger" id="debug-vm-btn">调试模式</button>
                         </div>
                     </div>
                     <div class="panel-body">
-                        <div id="terminal"></div>
+                        <div id="terminal" tabindex="0" title="点击此处聚焦，然后可直接输入命令"></div>
+                        <small class="text-muted">提示: 点击终端窗口后可直接输入命令</small>
                     </div>
                 </div>
 
@@ -185,7 +218,7 @@
                     <div class="row">
                         <div class="col-md-6">
                             <strong>CPU:</strong> <span id="cpu-info">x86 虚拟处理器</span><br>
-                            <strong>内存:</strong> <span id="ram-info">128MB RAM</span><br>
+                            <strong>内存:</strong> <span id="ram-info">512MB RAM</span><br>
                             <strong>编译器:</strong> <span id="compiler-info">GCC 11+</span>
                         </div>
                         <div class="col-md-6">
@@ -208,16 +241,16 @@
             </div>
         </div>
 
-        <!-- V86 Emulator Screen (Hidden - using headless mode) -->
-        <div class="row" style="display: none;">
+        <!-- V86 Emulator Screen (Toggleable) -->
+        <div class="row" id="graphic-console-row" style="display: none;">
             <div class="col-md-12">
                 <div class="panel panel-default">
                     <div class="panel-heading">
-                        <h4>虚拟机控制台 (无图形模式)</h4>
+                        <h4>VGA 图形控制台</h4>
                     </div>
                     <div class="panel-body text-center">
                         <div id="screen_container"></div>
-                        <p>使用无图形模式，所有输出显示在终端输出面板中。</p>
+                        <p class="text-muted">直接与虚拟机 VGA 显示交互 - 点击窗口以获取键盘焦点</p>
                     </div>
                 </div>
             </div>
@@ -302,7 +335,7 @@
         // Simplified V86 Configuration  
         const V86_SIMPLE_CONFIG = {
             wasm_path: "build/v86.wasm", // Local wasm file matching CDN version
-            memory_size: 128 * 1024 * 1024,
+            memory_size: 512 * 1024 * 1024,
             vga_memory_size: 8 * 1024 * 1024,
             // screen_container will be set during initialization
             autostart: true,
@@ -315,7 +348,7 @@
             const requiredFiles = [
                 'bios/seabios.bin',
                 'bios/vgabios.bin', 
-                'v86-sys/alpine-linux.iso',
+                'images/alpine-virt-3.23.2-x86.iso',
                 'build/libv86.js',
                 'build/v86.wasm'
             ];
@@ -456,155 +489,254 @@ int main() {
         /**
          * Initialize V86 emulator
          */
+        // Global emulator variable
+        let emulator;
+        let serialOutput = "";
+        let isLoggedIn = false;
+        let loginBuffer = "";
+        
+        /**
+         * Send command to emulator
+         */
+        function sendCommand(command) {
+            if (!emulator) {
+                console.error('Emulator not initialized');
+                return;
+            }
+            console.log('Sending command:', command);
+            for (let i = 0; i < command.length; i++) {
+                // Use bus.send for serial input instead of serial0_send
+                emulator.bus.send("serial0-input", command.charCodeAt(i));
+            }
+        }
+        
+        /**
+         * Setup terminal keyboard input
+         */
+        function setupTerminalInput() {
+            const terminal = document.getElementById('terminal');
+            console.log('setupTerminalInput called, terminal element:', terminal);
+            
+            terminal.addEventListener('keydown', function(e) {
+                console.log('Keydown event:', e.key, 'emulator:', !!emulator);
+                if (!emulator) return;
+                
+                // Prevent default for most keys to avoid browser shortcuts
+                if (!e.ctrlKey || e.key === 'c' || e.key === 'd' || e.key === 'z') {
+                    e.preventDefault();
+                }
+                
+                let charCode;
+                
+                // Handle special keys
+                if (e.key === 'Enter') {
+                    charCode = 13;
+                } else if (e.key === 'Backspace') {
+                    charCode = 8;
+                } else if (e.key === 'Tab') {
+                    charCode = 9;
+                } else if (e.key === 'Escape') {
+                    charCode = 27;
+                } else if (e.key === 'ArrowUp') {
+                    charCode = 27; // ESC
+                    emulator.serial0_send(charCode);
+                    emulator.serial0_send(91); // [
+                    charCode = 65; // A
+                } else if (e.key === 'ArrowDown') {
+                    charCode = 27;
+                    emulator.serial0_send(charCode);
+                    emulator.serial0_send(91);
+                    charCode = 66; // B
+                } else if (e.key === 'ArrowRight') {
+                    charCode = 27;
+                    emulator.serial0_send(charCode);
+                    emulator.serial0_send(91);
+                    charCode = 67; // C
+                } else if (e.key === 'ArrowLeft') {
+                    charCode = 27;
+                    emulator.serial0_send(charCode);
+                    emulator.serial0_send(91);
+                    charCode = 68; // D
+                } else if (e.ctrlKey) {
+                    // Handle Ctrl+C, Ctrl+D, etc.
+                    if (e.key === 'c' || e.key === 'C') {
+                        charCode = 3; // Ctrl+C
+                    } else if (e.key === 'd' || e.key === 'D') {
+                        charCode = 4; // Ctrl+D
+                    } else if (e.key === 'z' || e.key === 'Z') {
+                        charCode = 26; // Ctrl+Z
+                    } else {
+                        return; // Ignore other Ctrl combinations
+                    }
+                } else if (e.key.length === 1) {
+                    // Regular character
+                    charCode = e.key.charCodeAt(0);
+                } else {
+                    return; // Ignore other special keys
+                }
+                
+                if (charCode !== undefined) {
+                    console.log('Sending charCode:', charCode, 'char:', String.fromCharCode(charCode));
+                    if (emulator && emulator.bus && emulator.bus.send) {
+                        emulator.bus.send("serial0-input", charCode);
+                        console.log('bus.send called successfully');
+                    } else {
+                        console.error('bus.send not available! emulator:', emulator);
+                    }
+                }
+            });
+            
+            // Auto-focus terminal on click
+            terminal.addEventListener('click', function() {
+                console.log('Terminal clicked, focusing...');
+                terminal.focus();
+            });
+            
+            // Auto-focus terminal when page loads
+            setTimeout(() => {
+                console.log('Auto-focusing terminal on page load');
+                terminal.focus();
+            }, 2000);
+        }
+
         async function initializeV86() {
             try {
                 updateSystemStatus('正在启动虚拟机...', 'warning');
+                appendToTerminal('=== 正在初始化 V86 虚拟机 ===\n');
                 
-                // Try multiple approaches to get console working
-                console.log('Configuring V86 with multiple console methods');
-                const v86Config = {
-                    ...V86_SIMPLE_CONFIG,
-                    // No screen_container - headless mode only
-                    bios: { url: "bios/seabios.bin" },
-                    vga_bios: { url: "bios/vgabios.bin" },
-                    cdrom: { url: "v86-sys/alpine-linux.iso" },
-                    // Try multiple serial console configurations
-                    cmdline: [
-                        "console=ttyS0,115200n8",
-                        "console=tty0", 
-                        "earlyprintk=serial,ttyS0,115200",
-                        "alpine_dev=cdrom:iso9660",
-                        "modloop=/boot/modloop-lts",
-                        "quiet"
-                    ].join(" "),
-                    // Enable all serial ports and try different configurations
-                    uart1: true,
-                    uart2: true,  
-                    uart3: true,
-                    // Add network interface in case we need it
-                    network_relay_url: "wisp://relay.widgetry.org/"
-                };
+                // Use the correct V86 constructor (V86Starter or V86)
+                const V86Constructor = typeof V86Starter !== 'undefined' ? V86Starter : V86;
                 
-                appendToTerminal('配置 Alpine Linux 使用串口控制台...\n');
-                appendToTerminal('启动参数: console=ttyS0,115200 console=tty0\n');
-                appendToTerminal('等待系统启动和串口输出...\n');
-                
-                v86Interface = new V86Interface(v86Config);
-                
-                // Set up event handlers
-                v86Interface.onSystemReady = handleSystemReady;
-                v86Interface.onTerminalOutput = handleTerminalOutput;
-                v86Interface.onCompilationComplete = handleCompilationComplete;
-                
-                // Initialize the emulator
-                await v86Interface.initialize();
-                
-                // Wait for system to be properly ready
-                console.log('Waiting for system boot...');
-                
-                // Set up a timeout to check if we're getting serial output
-                let serialOutputTimeout = setTimeout(() => {
-                    console.log('Checking V86 status after 15 seconds...');
-                    if (v86Interface) {
-                        v86Interface.checkV86Status();
+                emulator = new V86Constructor({
+                    wasm_path: "build/v86.wasm",
+                    memory_size: 512 * 1024 * 1024,
+                    vga_memory_size: 8 * 1024 * 1024,
+                    // Don't set screen_container - use headless mode, VGA can be enabled later
+                    bios: {
+                        url: "bios/seabios.bin",
+                    },
+                    vga_bios: {
+                        url: "bios/vgabios.bin",
+                    },
+                    cdrom: {
+                        url: "images/alpine-virt-3.23.2-x86.iso",
+                        async: false,
+                    },
+                    filesystem: {},
+                    autostart: true,
+                });
+
+                appendToTerminal('V86 已创建，等待系统启动...\n');
+
+                let escapeBuffer = '';
+                let inEscapeSequence = false;
+
+                emulator.add_listener("serial0-output-byte", function(byte) {
+                    const char = String.fromCharCode(byte);
+                    
+                    // Handle ANSI escape sequences
+                    if (char === '\x1b') { // ESC character
+                        inEscapeSequence = true;
+                        escapeBuffer = '\x1b';
+                        return;
                     }
                     
-                    if (!v86Interface.serialOutputReceived && !v86Interface.screenOutputReceived) {
-                        console.warn('No console output received after 15 seconds');
-                        appendToTerminal('\\n⚠️ 警告: 15秒内未收到控制台输出\\n');
-                        appendToTerminal('调试信息:\\n');
-                        appendToTerminal('1. V86 事件: ' + Array.from(v86Interface.receivedEvents || []).join(', ') + '\\n');
-                        appendToTerminal('2. 串口输出: ' + (v86Interface.serialOutputReceived ? '已接收' : '未接收') + '\\n');
-                        appendToTerminal('3. 屏幕输出: ' + (v86Interface.screenOutputReceived ? '已接收' : '未接收') + '\\n');
-                        appendToTerminal('\\n可能的问题:\\n');
-                        appendToTerminal('1. Alpine Linux ISO 不支持串口控制台\\n');
-                        appendToTerminal('2. V86 配置问题\\n');
-                        appendToTerminal('3. 启动参数不正确\\n');
-                        appendToTerminal('4. VM 启动失败\\n');
-                        appendToTerminal('\\n尝试手动发送测试命令...\\n');
+                    if (inEscapeSequence) {
+                        escapeBuffer += char;
                         
-                        // Try to send a test command anyway
-                        if (v86Interface && v86Interface.emulator) {
-                            console.log('Attempting to send test command to VM...');
-                            v86Interface.sendCommandNoWait('echo \"Manual test command\"');
+                        // Check if escape sequence is complete
+                        // Most sequences end with a letter (A-Z, a-z)
+                        if (/[A-Za-z]/.test(char)) {
+                            // Process the escape sequence
+                            processEscapeSequence(escapeBuffer);
+                            escapeBuffer = '';
+                            inEscapeSequence = false;
                         }
-                    } else {
-                        console.log('Console output confirmed - communication working');
-                        appendToTerminal('\\n✅ 控制台连接正常\\n');
+                        return;
                     }
-                }, 15000);
+                    
+                    if (char === '\r') return; // Skip carriage returns
+                    
+                    serialOutput += char;
+                    appendToTerminal(char);
+                    
+                    // Login detection (no auto-login - manual only)
+                    if (!isLoggedIn) {
+                        loginBuffer += char;
+                        
+                        // Keep buffer manageable (last 100 chars)
+                        if (loginBuffer.length > 100) {
+                            loginBuffer = loginBuffer.slice(-100);
+                        }
+                        
+                        // Detect successful login (shell prompt)
+                        if (loginBuffer.includes('localhost:~#') || loginBuffer.includes('localhost:/#')) {
+                            console.log('Logged in successfully');
+                            appendToTerminal('\n=== 已成功登录为 root ===\n');
+                            appendToTerminal('现在您可以直接在此终端输入命令\n');
+                            updateSystemStatus('Alpine Linux 已就绪', 'success');
+                            isLoggedIn = true;
+                        }
+                    }
+                });
                 
-                setTimeout(() => {
-                    console.log('System should be ready now');
-                    appendToTerminal('等待系统启动完成...\\n');
-                    clearTimeout(serialOutputTimeout);
-                }, 5000);
+                // Process ANSI escape sequences
+                function processEscapeSequence(seq) {
+                    // Log escape sequences for debugging (optional)
+                    // console.log('Escape sequence:', seq.split('').map(c => c.charCodeAt(0).toString(16)).join(' '));
+                    
+                    // Most common sequences:
+                    // ESC[H - cursor home
+                    // ESC[J - clear screen
+                    // ESC[K - clear line
+                    // ESC[nA - cursor up n lines
+                    // ESC[nB - cursor down n lines
+                    // ESC[nC - cursor forward n chars
+                    // ESC[nD - cursor back n chars
+                    // ESC[n;mH - cursor position
+                    // ESC[nm - graphics mode
+                    
+                    // For now, we'll silently consume these sequences
+                    // A full terminal emulator would implement cursor positioning, colors, etc.
+                }
+
+                emulator.add_listener("emulator-ready", function() {
+                    updateSystemStatus('Linux 系统就绪', 'success');
+                    appendToTerminal('\n=== Linux 系统就绪 ===\n');
+                    appendToTerminal('您可以使用下面的按钮编译和运行代码\n');
+                    appendToTerminal('或直接点击此终端窗口输入命令\n');
+                });
+
+                emulator.add_listener("emulator-started", function() {
+                    updateSystemStatus('Linux 正在启动...', 'warning');
+                    appendToTerminal('=== Linux 正在启动 ===\n');
+                    console.log('Emulator started event fired');
+                });
                 
-                console.log('V86 interface initialized');
+                emulator.add_listener("download-progress", function(e) {
+                    // Just log to console, don't clutter terminal
+                    if (e.file_name && e.total) {
+                        const percent = Math.round((e.loaded / e.total) * 100);
+                        console.log(`Download: ${e.file_name} ${percent}%`);
+                    }
+                });
+                
+                emulator.add_listener("download-error", function(e) {
+                    console.error('Download error:', e);
+                    // Only show critical errors in terminal
+                });
+
+                console.log('V86 emulator initialized, constructor:', emulator.constructor.name);
+                
+                // Enable keyboard input immediately after emulator is created
+                console.log('Setting up terminal keyboard input...');
+                setupTerminalInput();
+                console.log('Terminal keyboard input setup complete');
                 
             } catch (error) {
                 console.error('Failed to initialize V86:', error);
                 updateSystemStatus('虚拟机启动失败', 'danger');
-                appendToTerminal('错误: 无法启动虚拟机系统\\n' + error.message + '\\n');
-            }
-        }
-
-        /**
-         * Handle system ready event
-         */
-        function handleSystemReady() {
-            console.log('System is ready');
-            isSystemReady = true;
-            updateSystemStatus('系统运行中', 'success');
-            appendToTerminal('=== V86 C++ 编译环境已就绪 ===\\n');
-            appendToTerminal('内存: 128MB | 处理器: x86 | 编译器: GCC 11+\\n');
-            appendToTerminal('支持 C++17/20 标准和现代开发工具\n');
-            appendToTerminal('无图形模式运行中，控制台输出显示在此终端\n');
-            appendToTerminal('系统状态: 串口控制台已连接\n\n');
-            
-            // Get system information
-            v86Interface.getSystemInfo();
-        }
-
-        /**
-         * Handle terminal output
-         */
-        function handleTerminalOutput(output) {
-            // Debug: Log first few characters received and check for boot messages
-            if (output && output.length > 0) {
-                console.log('Terminal output received:', JSON.stringify(output.slice(0, 20)));
-                
-                // Check for Alpine Linux boot indicators
-                if (output.includes('Welcome to Alpine Linux') || 
-                    output.includes('alpine') ||
-                    output.includes('login:') ||
-                    output.includes('localhost') ||
-                    output.includes('# ') ||
-                    output.includes('$ ')) {
-                    console.log('Alpine Linux boot detected in output!');
-                    appendToTerminal('\n[检测到 Alpine Linux 启动输出]\n');
-                }
-            }
-            appendToTerminal(output);
-        }
-
-        /**
-         * Handle compilation completion
-         */
-        function handleCompilationComplete(output) {
-            console.log('Compilation completed:', output);
-            
-            // Parse compilation output for errors
-            const errors = parseGccOutput(output);
-            
-            if (errors.length > 0) {
-                showErrorPanel(errors);
-                updateErrorAnnotations(errors);
-                updateSystemStatus('编译失败', 'danger');
-            } else {
-                hideErrorPanel();
-                clearErrorAnnotations();
-                updateSystemStatus('编译成功', 'success');
+                appendToTerminal('错误: 无法启动虚拟机系统\n' + error.message + '\n');
             }
         }
 
@@ -626,6 +758,7 @@ int main() {
             
             // Terminal operations
             document.getElementById('clear-terminal-btn').addEventListener('click', clearTerminal);
+            document.getElementById('toggle-console-btn').addEventListener('click', toggleGraphicConsole);
             document.getElementById('restart-vm-btn').addEventListener('click', restartVM);
             document.getElementById('system-info-btn').addEventListener('click', showSystemInfo);
             document.getElementById('debug-vm-btn').addEventListener('click', debugVM);
@@ -641,7 +774,7 @@ int main() {
          * Compile and run code
          */
         async function compileAndRun() {
-            if (!isSystemReady) {
+            if (!emulator) {
                 alert('系统尚未就绪，请等待虚拟机启动完成');
                 return;
             }
@@ -651,17 +784,35 @@ int main() {
             const flags = document.getElementById('compiler-flags').value;
 
             try {
-                updateSystemStatus('编译运行中...', 'info');
+                updateSystemStatus('准备编译...', 'info');
+                clearTerminal();
+                appendToTerminal('=== 开始编译 ===\n');
+                appendToTerminal(`文件: ${filename}\n`);
+                appendToTerminal(`编译选项: ${flags}\n\n`);
                 
-                // Upload file to VM
-                await v86Interface.uploadFile(filename, code);
+                // Create the file content on VM
+                const escapedCode = code.replace(/'/g, "'\\''").replace(/\n/g, '\\n');
+                sendCommand(`echo '${escapedCode}' > /tmp/${filename}\n`);
                 
-                // Compile and run
-                await v86Interface.compileAndRun(filename, flags);
+                // Wait a bit for file creation
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Compile
+                appendToTerminal(`正在编译...\n`);
+                sendCommand(`cd /tmp && g++ ${flags} ${filename} -o program 2>&1\n`);
+                
+                // Wait for compilation
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Run if compilation succeeded
+                appendToTerminal(`\n正在运行程序...\n`);
+                sendCommand(`cd /tmp && ./program 2>&1\n`);
+                
+                updateSystemStatus('编译运行完成', 'success');
                 
             } catch (error) {
                 console.error('Compilation failed:', error);
-                appendToTerminal('编译错误: ' + error.message + '\\n');
+                appendToTerminal('编译错误: ' + error.message + '\n');
                 updateSystemStatus('编译失败', 'danger');
             }
         }
@@ -670,7 +821,7 @@ int main() {
          * Compile only (no execution)
          */
         async function compileOnly() {
-            if (!isSystemReady) {
+            if (!emulator) {
                 alert('系统尚未就绪，请等待虚拟机启动完成');
                 return;
             }
@@ -681,12 +832,18 @@ int main() {
 
             try {
                 updateSystemStatus('编译中...', 'info');
+                clearTerminal();
+                appendToTerminal('=== 仅编译 ===\n');
                 
-                // Upload file to VM
-                await v86Interface.uploadFile(filename, code);
+                // Create the file content on VM
+                const escapedCode = code.replace(/'/g, "'\\''").replace(/\n/g, '\\n');
+                sendCommand(`echo '${escapedCode}' > /tmp/${filename}\n`);
                 
-                // Compile without running
-                v86Interface.sendCommand(`cd /home/user && g++ ${flags} ${filename} -o program`);
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                sendCommand(`cd /tmp && g++ ${flags} ${filename} -o program 2>&1\n`);
+                
+                updateSystemStatus('编译完成', 'success');
                 
             } catch (error) {
                 console.error('Compilation failed:', error);
@@ -753,61 +910,73 @@ int main() {
         }
 
         /**
+         * Toggle graphic console visibility
+         */
+        function toggleGraphicConsole() {
+            const consoleRow = document.getElementById('graphic-console-row');
+            const button = document.getElementById('toggle-console-btn');
+            
+            if (consoleRow.style.display === 'none') {
+                consoleRow.style.display = '';
+                button.textContent = '隐藏图形控制台';
+                button.classList.remove('btn-primary');
+                button.classList.add('btn-success');
+                appendToTerminal('\n[VGA 图形控制台已显示]\n');
+            } else {
+                consoleRow.style.display = 'none';
+                button.textContent = '图形控制台';
+                button.classList.remove('btn-success');
+                button.classList.add('btn-primary');
+                appendToTerminal('\n[VGA 图形控制台已隐藏]\n');
+            }
+        }
+
+        /**
          * Restart VM
          */
         function restartVM() {
             updateSystemStatus('重启虚拟机中...', 'warning');
-            isSystemReady = false;
             
-            if (v86Interface) {
-                v86Interface.restart();
+            if (emulator) {
+                emulator.restart();
+                clearTerminal();
+                appendToTerminal('正在重启虚拟机系统...\n');
+            } else {
+                appendToTerminal('虚拟机未初始化\n');
             }
-            
-            clearTerminal();
-            appendToTerminal('正在重启虚拟机系统...\\n');
         }
 
         /**
          * Debug VM status and force tests
          */
         function debugVM() {
-            appendToTerminal('\\n=== 调试模式激活 ===\\n');
+            appendToTerminal('\n=== 调试模式激活 ===\n');
             
-            if (!v86Interface) {
-                appendToTerminal('错误: V86 接口未初始化\\n');
+            if (!emulator) {
+                appendToTerminal('错误: 虚拟机未初始化\n');
                 return;
             }
             
-            appendToTerminal('执行全面系统检查...\\n');
-            v86Interface.checkV86Status();
+            appendToTerminal('发送测试命令...\n');
+            sendCommand('echo "Debug test"\n');
+            sendCommand('ls --color /\n');
             
-            appendToTerminal('尝试强制测试...\\n');
-            v86Interface.forceTest();
-            
-            appendToTerminal('发送基础键盘输入...\\n');
-            if (v86Interface.emulator) {
-                // Send Enter, then 'ls', then Enter
-                v86Interface.emulator.serial0_send(13); // Enter
-                setTimeout(() => {
-                    const cmd = 'ls -la';
-                    for (let i = 0; i < cmd.length; i++) {
-                        v86Interface.emulator.serial0_send(cmd.charCodeAt(i));
-                    }
-                    v86Interface.emulator.serial0_send(13);
-                }, 1000);
-            }
-            
-            appendToTerminal('调试命令已发送，请等待响应...\\n');
+            appendToTerminal('调试命令已发送，请等待响应...\n');
         }
 
         /**
          * Show system information
          */
         function showSystemInfo() {
-            if (v86Interface && isSystemReady) {
-                v86Interface.getSystemInfo();
+            if (emulator) {
+                appendToTerminal('\n=== 系统信息 ===\n');
+                appendToTerminal('虚拟机: V86 x86 模拟器\n');
+                appendToTerminal('内存: 512MB RAM\n');
+                appendToTerminal('系统: Linux (32-bit)\n');
+                sendCommand('uname -a\n');
+                sendCommand('gcc --version | head -1\n');
             } else {
-                appendToTerminal('系统信息: V86 x86 虚拟机，128MB RAM，GCC 11+ 编译器\\n');
+                appendToTerminal('系统信息: V86 x86 512 RAM\n');
             }
         }
 
@@ -831,15 +1000,88 @@ int main() {
             document.getElementById('compiler-flags').value = newFlags.trim();
         }
 
+        // ANSI buffer for terminal output
+        let terminalAnsiBuffer = '';
+        
         /**
-         * Append text to terminal
+         * Append text to terminal with ANSI color processing
          */
         function appendToTerminal(text) {
+            terminalAnsiBuffer += text;
+            
+            // First convert spaces, newlines before processing ANSI codes
+            // Also filter out unicode 255 (0xFF) character
+            let preprocessed = terminalAnsiBuffer
+                .replace(/\r/g, '')
+                .replace(/\u00FF/g, '')  // Remove unicode 255 character
+                .replace(/ /g, '&nbsp;')
+                .replace(/\n/g, '<br>');
+            
+            // Process ANSI codes sequentially to avoid orphaned tags
+            let result = '';
+            let inSpan = false;
+            let i = 0;
+            
+            while (i < preprocessed.length) {
+                // Check for ANSI escape sequence
+                if (preprocessed[i] === '\u001b' && preprocessed[i + 1] === '[') {
+                    let j = i + 2;
+                    let code = '';
+                    
+                    // Extract the ANSI code
+                    while (j < preprocessed.length && preprocessed[j] !== 'm') {
+                        code += preprocessed[j];
+                        j++;
+                    }
+                    
+                    if (j < preprocessed.length && preprocessed[j] === 'm') {
+                        // We found a complete ANSI code
+                        if (code === '1;34') {
+                            // Blue - close any open span first, then open new one
+                            if (inSpan) result += '</span>';
+                            result += '<span class="serial-blue">';
+                            inSpan = true;
+                        } else if (code === '1;32') {
+                            // Green
+                            if (inSpan) result += '</span>';
+                            result += '<span class="serial-green">';
+                            inSpan = true;
+                        } else if (code === '1;36') {
+                            // Cyan
+                            if (inSpan) result += '</span>';
+                            result += '<span class="serial-cyan">';
+                            inSpan = true;
+                        } else if (code === '0' || code === '0;0' || code === '') {
+                            // Reset - close span if one is open
+                            if (inSpan) {
+                                result += '</span>';
+                                inSpan = false;
+                            }
+                        }
+                        i = j + 1;
+                        continue;
+                    }
+                }
+                
+                // Regular character
+                result += preprocessed[i];
+                i++;
+            }
+            
             const terminal = document.getElementById('terminal');
-            terminal.textContent += text;
+            terminal.innerHTML = result;
             terminal.scrollTop = terminal.scrollHeight;
         }
 
+        /**
+         * Clear terminal
+         */
+        function clearTerminal() {
+            terminalAnsiBuffer = '';
+            const terminal = document.getElementById('terminal');
+            terminal.innerHTML = '';
+        }
+        
         /**
          * Update system status
          */

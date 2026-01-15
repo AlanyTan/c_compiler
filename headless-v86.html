@@ -103,6 +103,8 @@
         <button onclick="sendCommand('root\n')">Login as root</button>
         <button onclick="sendCommand('ls\n')">List files</button>
         <button onclick="sendCommand('whoami\n')">Who am I</button>
+        <button onclick="saveState()">Save State</button>
+        <button onclick="restartVM()">Restart VM</button>
         
         <h3>Serial Console:</h3>
         <div id="serial"></div>
@@ -246,6 +248,43 @@
             }
         }
 
+        function saveState() {
+            if (!emulator) {
+                alert('Emulator not initialized');
+                return;
+            }
+            
+            updateStatus('Saving emulator state...', 'loading');
+            emulator.save_state(function(error, state) {
+                if (error) {
+                    console.error('Failed to save state:', error);
+                    updateStatus('Failed to save state', 'error');
+                    alert('Error saving state: ' + error);
+                    return;
+                }
+                
+                // Download the state file
+                const blob = new Blob([state], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'arch-v86state.bin';
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                updateStatus('State saved successfully! Copy arch-v86state.bin to images/', 'success');
+                updateSerial('\n=== State saved to arch-v86state.bin ===\n');
+                updateSerial('Copy this file to images/ directory and set USE_STATE=true in HTML\n');
+            });
+        }
+
+        function restartVM() {
+            if (confirm('Restart the virtual machine? This will lose unsaved work.')) {
+                updateStatus('Restarting...', 'loading');
+                location.reload();
+            }
+        }
+
         // Handle Enter key in input
         document.getElementById('command_input').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
@@ -257,7 +296,8 @@
             updateStatus('Initializing V86...');
             
             try {
-                emulator = new V86({
+                // Configuration for Arch Linux with 9p filesystem and state restoration
+                const config = {
                     wasm_path: "build/v86.wasm",
                     memory_size: 128 * 1024 * 1024,
                     vga_memory_size: 8 * 1024 * 1024,
@@ -268,13 +308,49 @@
                     vga_bios: {
                         url: "bios/vgabios.bin",
                     },
-                    cdrom: {
-                        url: "images/linux4.iso",
-                        async: false,
-                    },
-                    filesystem: {},
                     autostart: true,
-                });
+                };
+
+                // Check if we should use saved state or boot from image
+                const USE_STATE = false; // Set to true once you have a v86state.bin file
+                const USE_9P_FS = false; // Set to true if you built the 9p filesystem
+                const USE_ARCH_IMG = false; // Set to true once you've built arch.img with the build scripts
+
+                if (USE_STATE) {
+                    // Load from saved state for instant boot
+                    config.initial_state = {
+                        url: "images/arch-v86state.bin"
+                    };
+                    
+                    if (USE_9P_FS) {
+                        // Use 9p network filesystem
+                        config.filesystem = {
+                            baseurl: "arch/",
+                            basefs: "images/arch-fs.json",
+                        };
+                    }
+                    
+                    updateStatus('Loading Arch Linux from saved state...', 'loading');
+                } else if (USE_ARCH_IMG) {
+                    // Boot from built arch.img (after running build scripts)
+                    config.hda = {
+                        url: "images/arch.img",
+                        async: true,
+                        size: 2 * 1024 * 1024 * 1024, // 2GB - match your packer disk_size
+                    };
+                    
+                    updateStatus('Booting Arch Linux from disk image...', 'loading');
+                } else {
+                    // Boot from Arch Linux ISO (existing file, no build needed)
+                    config.cdrom = {
+                        url: "images/archlinux.iso",
+                        async: false,
+                    };
+                    
+                    updateStatus('Booting Arch Linux from ISO...', 'loading');
+                }
+
+                emulator = new V86(config);
 
                 updateStatus('V86 created, waiting for boot...');
 
@@ -285,14 +361,17 @@
                 });
 
                 emulator.add_listener("emulator-ready", function() {
-                    updateStatus('Linux ready! You can interact with the console.', 'success');
-                    updateSerial('\n=== Linux Ready ===\n');
-                    updateSerial('Use the buttons above or type commands below.\n');
+                    updateStatus('Arch Linux ready! You can interact with the console.', 'success');
+                    updateSerial('\n=== Arch Linux Ready ===\n');
+                    if (!USE_STATE) {
+                        updateSerial('TIP: Once fully booted, you can save the state for instant loading.\n');
+                        updateSerial('Click "Save State" button (add one) or run emulator.save_state() in console.\n');
+                    }
                 });
 
                 emulator.add_listener("emulator-started", function() {
-                    updateStatus('Linux booting...', 'loading');
-                    updateSerial('=== Linux Starting ===\n');
+                    updateStatus('Arch Linux booting...', 'loading');
+                    updateSerial('=== Arch Linux Starting ===\n');
                 });
 
                 console.log('V86 emulator initialized');
