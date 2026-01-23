@@ -51,22 +51,6 @@
             font-weight: bold !important;
         }
         
-        #screen_container {
-            width: 800px;
-            height: 400px;
-            border: 1px solid #ccc;
-            background-color: #000;
-            margin: 10px auto;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        #screen_container canvas {
-            display: block !important;
-            image-rendering: pixelated;
-            image-rendering: crisp-edges;
-        }
-        
         .status-panel {
             background-color: #f8f9fa;
             border: 1px solid #dee2e6;
@@ -198,7 +182,6 @@
                         <h4>终端输出</h4>
                         <div class="btn-group" role="group">
                             <button type="button" class="btn btn-sm btn-default" id="clear-terminal-btn">清空</button>
-                            <button type="button" class="btn btn-sm btn-primary" id="toggle-console-btn">图形控制台</button>
                             <button type="button" class="btn btn-sm btn-warning" id="restart-vm-btn">重启虚拟机</button>
                             <button type="button" class="btn btn-sm btn-success" id="save-state-btn">保存状态</button>
                             <button type="button" class="btn btn-sm btn-info" id="enable-network-btn">启用网络</button>
@@ -242,19 +225,6 @@
         </div>
 
         <!-- V86 Emulator Screen (Toggleable) -->
-        <div class="row" id="graphic-console-row" style="display: none;">
-            <div class="col-md-12">
-                <div class="panel panel-default">
-                    <div class="panel-heading">
-                        <h4>VGA 图形控制台</h4>
-                    </div>
-                    <div class="panel-body text-center">
-                        <div id="screen_container"></div>
-                        <p class="text-muted">直接与虚拟机 VGA 显示交互 - 点击窗口以获取键盘焦点</p>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <!-- V86 Library - Load from multiple sources -->
@@ -264,7 +234,6 @@
             return new Promise((resolve, reject) => {
                 // Check if already loaded
                 if (typeof V86Starter !== 'undefined') {
-                    console.log('V86 already loaded');
                     resolve();
                     return;
                 }
@@ -272,7 +241,6 @@
                 // Try local first since we have it downloaded
                 const localScript = document.createElement('script');
                 localScript.onload = () => {
-                    console.log('V86 loaded from local file');
                     // Wait a bit for V86 constructor to be available
                     setTimeout(() => {
                         if (typeof V86Starter !== 'undefined') {
@@ -280,7 +248,6 @@
                         } else if (typeof V86 !== 'undefined') {
                             // Make V86 available as V86Starter for compatibility
                             window.V86Starter = V86;
-                            console.log('V86 found in local file, created V86Starter alias');
                             resolve();
                         } else {
                             reject(new Error('V86 constructor not available after local loading'));
@@ -293,7 +260,6 @@
                     const cdnScript = document.createElement('script');
                     cdnScript.src = 'https://unpkg.com/v86@latest/build/libv86.js';
                     cdnScript.onload = () => {
-                        console.log('V86 loaded from CDN');
                         setTimeout(() => {
                             if (typeof V86Starter !== 'undefined') {
                                 resolve();
@@ -358,25 +324,20 @@
             
             for (const file of requiredFiles) {
                 try {
-                    console.log(`Checking file: ${file}`);
                     const response = await fetch(file, { method: 'HEAD' });
                     if (response.ok) {
                         const size = response.headers.get('content-length');
                         fileDetails[file] = { exists: true, size: size || 'unknown' };
-                        console.log(`✅ ${file} - Size: ${size || 'unknown'} bytes`);
                     } else {
-                        console.log(`❌ ${file} - HTTP ${response.status}`);
                         missingFiles.push(file);
                         fileDetails[file] = { exists: false, status: response.status };
                     }
                 } catch (error) {
-                    console.log(`❌ ${file} - Error: ${error.message}`);
                     missingFiles.push(file);
                     fileDetails[file] = { exists: false, error: error.message };
                 }
             }
             
-            console.log('File check results:', fileDetails);
             return { missingFiles, fileDetails };
         }
         // Global variables
@@ -415,8 +376,6 @@ int main() {
          * Initialize the application
          */
         async function initializeApp() {
-            console.log('=== Initializing V86-based C++ Compiler ===');
-            
             // Initialize ACE editor first
             initializeEditor();
             
@@ -448,7 +407,6 @@ int main() {
                     appendToTerminal('正在加载 V86 虚拟机库...\n');
                     
                     await loadV86();
-                    console.log('V86 library loaded successfully');
                     
                     updateSystemStatus('初始化虚拟机...', 'warning');
                     appendToTerminal('V86 库加载成功，正在初始化虚拟机...\n');
@@ -459,8 +417,6 @@ int main() {
                     handleV86LoadError(error);
                 }
             }
-            
-            console.log('Application initialization complete');
         }
 
         /**
@@ -482,8 +438,6 @@ int main() {
                 showPrintMargin: false,
                 wrap: true
             });
-
-            console.log('ACE editor initialized');
         }
 
         /**
@@ -503,7 +457,6 @@ int main() {
                 console.error('Emulator not initialized');
                 return;
             }
-            console.log('Sending command:', command);
             for (let i = 0; i < command.length; i++) {
                 // Use bus.send for serial input instead of serial0_send
                 emulator.bus.send("serial0-input", command.charCodeAt(i));
@@ -515,10 +468,8 @@ int main() {
          */
         function setupTerminalInput() {
             const terminal = document.getElementById('terminal');
-            console.log('setupTerminalInput called, terminal element:', terminal);
             
             terminal.addEventListener('keydown', function(e) {
-                console.log('Keydown event:', e.key, 'emulator:', !!emulator);
                 if (!emulator) return;
                 
                 // Prevent default for most keys to avoid browser shortcuts
@@ -576,10 +527,8 @@ int main() {
                 }
                 
                 if (charCode !== undefined) {
-                    console.log('Sending charCode:', charCode, 'char:', String.fromCharCode(charCode));
                     if (emulator && emulator.bus && emulator.bus.send) {
                         emulator.bus.send("serial0-input", charCode);
-                        console.log('bus.send called successfully');
                     } else {
                         console.error('bus.send not available! emulator:', emulator);
                     }
@@ -588,13 +537,11 @@ int main() {
             
             // Auto-focus terminal on click
             terminal.addEventListener('click', function() {
-                console.log('Terminal clicked, focusing...');
                 terminal.focus();
             });
             
             // Auto-focus terminal when page loads
             setTimeout(() => {
-                console.log('Auto-focusing terminal on page load');
                 terminal.focus();
             }, 2000);
         }
@@ -622,6 +569,7 @@ int main() {
                         url: "images/alpine-virt-3.23.2-x86.iso",
                         async: false,
                     },
+                    network_relay_url: "wss://relay.widgetry.org/",
                     filesystem: {},
                     autostart: true,
                 });
@@ -671,7 +619,6 @@ int main() {
                         
                         // Detect successful login (shell prompt)
                         if (loginBuffer.includes('localhost:~#') || loginBuffer.includes('localhost:/#')) {
-                            console.log('Logged in successfully');
                             appendToTerminal('\n=== 已成功登录为 root ===\n');
                             appendToTerminal('现在您可以直接在此终端输入命令\n');
                             updateSystemStatus('Alpine Linux 已就绪', 'success');
@@ -710,15 +657,10 @@ int main() {
                 emulator.add_listener("emulator-started", function() {
                     updateSystemStatus('Linux 正在启动...', 'warning');
                     appendToTerminal('=== Linux 正在启动 ===\n');
-                    console.log('Emulator started event fired');
                 });
                 
                 emulator.add_listener("download-progress", function(e) {
-                    // Just log to console, don't clutter terminal
-                    if (e.file_name && e.total) {
-                        const percent = Math.round((e.loaded / e.total) * 100);
-                        console.log(`Download: ${e.file_name} ${percent}%`);
-                    }
+                    // Silently track download progress
                 });
                 
                 emulator.add_listener("download-error", function(e) {
@@ -726,12 +668,8 @@ int main() {
                     // Only show critical errors in terminal
                 });
 
-                console.log('V86 emulator initialized, constructor:', emulator.constructor.name);
-                
                 // Enable keyboard input immediately after emulator is created
-                console.log('Setting up terminal keyboard input...');
                 setupTerminalInput();
-                console.log('Terminal keyboard input setup complete');
                 
             } catch (error) {
                 console.error('Failed to initialize V86:', error);
@@ -758,7 +696,6 @@ int main() {
             
             // Terminal operations
             document.getElementById('clear-terminal-btn').addEventListener('click', clearTerminal);
-            document.getElementById('toggle-console-btn').addEventListener('click', toggleGraphicConsole);
             document.getElementById('restart-vm-btn').addEventListener('click', restartVM);
             document.getElementById('system-info-btn').addEventListener('click', showSystemInfo);
             document.getElementById('debug-vm-btn').addEventListener('click', debugVM);
@@ -907,28 +844,6 @@ int main() {
          */
         function clearTerminal() {
             document.getElementById('terminal').textContent = '';
-        }
-
-        /**
-         * Toggle graphic console visibility
-         */
-        function toggleGraphicConsole() {
-            const consoleRow = document.getElementById('graphic-console-row');
-            const button = document.getElementById('toggle-console-btn');
-            
-            if (consoleRow.style.display === 'none') {
-                consoleRow.style.display = '';
-                button.textContent = '隐藏图形控制台';
-                button.classList.remove('btn-primary');
-                button.classList.add('btn-success');
-                appendToTerminal('\n[VGA 图形控制台已显示]\n');
-            } else {
-                consoleRow.style.display = 'none';
-                button.textContent = '图形控制台';
-                button.classList.remove('btn-success');
-                button.classList.add('btn-primary');
-                appendToTerminal('\n[VGA 图形控制台已隐藏]\n');
-            }
         }
 
         /**
