@@ -489,25 +489,29 @@ int main() {
                 } else if (e.key === 'Escape') {
                     charCode = 27;
                 } else if (e.key === 'ArrowUp') {
-                    charCode = 27; // ESC
-                    emulator.serial0_send(charCode);
-                    emulator.serial0_send(91); // [
-                    charCode = 65; // A
+                    // Send ESC[A
+                    emulator.bus.send("serial0-input", 27); // ESC
+                    emulator.bus.send("serial0-input", 91); // [
+                    emulator.bus.send("serial0-input", 65); // A
+                    return;
                 } else if (e.key === 'ArrowDown') {
-                    charCode = 27;
-                    emulator.serial0_send(charCode);
-                    emulator.serial0_send(91);
-                    charCode = 66; // B
+                    // Send ESC[B
+                    emulator.bus.send("serial0-input", 27);
+                    emulator.bus.send("serial0-input", 91);
+                    emulator.bus.send("serial0-input", 66); // B
+                    return;
                 } else if (e.key === 'ArrowRight') {
-                    charCode = 27;
-                    emulator.serial0_send(charCode);
-                    emulator.serial0_send(91);
-                    charCode = 67; // C
+                    // Send ESC[C
+                    emulator.bus.send("serial0-input", 27);
+                    emulator.bus.send("serial0-input", 91);
+                    emulator.bus.send("serial0-input", 67); // C
+                    return;
                 } else if (e.key === 'ArrowLeft') {
-                    charCode = 27;
-                    emulator.serial0_send(charCode);
-                    emulator.serial0_send(91);
-                    charCode = 68; // D
+                    // Send ESC[D
+                    emulator.bus.send("serial0-input", 27);
+                    emulator.bus.send("serial0-input", 91);
+                    emulator.bus.send("serial0-input", 68); // D
+                    return;
                 } else if (e.ctrlKey) {
                     // Handle Ctrl+C, Ctrl+D, etc.
                     if (e.key === 'c' || e.key === 'C') {
@@ -577,6 +581,8 @@ int main() {
 
                 let escapeBuffer = '';
                 let inEscapeSequence = false;
+                let currentLine = ''; // Track the current line being edited
+                let cursorPos = 0; // Track cursor position within current line
 
                 emulator.add_listener("serial0-output-byte", function(byte) {
                     const char = String.fromCharCode(byte);
@@ -602,10 +608,56 @@ int main() {
                         return;
                     }
                     
-                    if (char === '\r') return; // Skip carriage returns
+                    // Handle carriage return - move cursor to beginning of current line
+                    if (char === '\r') {
+                        cursorPos = 0;
+                        return;
+                    }
+                    
+                    // Handle newline - finalize current line and start new one
+                    if (char === '\n') {
+                        terminalAnsiBuffer += currentLine + '\n';
+                        currentLine = '';
+                        cursorPos = 0;
+                        renderTerminal();
+                        return;
+                    }
+                    
+                    // Handle backspace character
+                    if (char === '\b') {
+                        // Move cursor back one position
+                        if (cursorPos > 0) {
+                            cursorPos--;
+                        }
+                        return;
+                    }
+                    
+                    // Regular character - insert/overwrite at cursor position
+                    // Handle special control characters
+                    const charCode = char.charCodeAt(0);
+                    
+                    if (charCode === 7) { // Bell character - blink screen
+                        const terminal = document.getElementById('terminal');
+                        terminal.style.opacity = '0.3';
+                        setTimeout(() => { terminal.style.opacity = '1'; }, 100);
+                        return;
+                    }
+                    
+                    if (charCode < 32 && charCode !== 9) { // Skip other control chars except tab
+                        return;
+                    }
+                    
+                    if (cursorPos >= currentLine.length) {
+                        // Append to end
+                        currentLine += char;
+                    } else {
+                        // Overwrite at cursor position
+                        currentLine = currentLine.substring(0, cursorPos) + char + currentLine.substring(cursorPos + 1);
+                    }
+                    cursorPos++;
+                    renderTerminal();
                     
                     serialOutput += char;
-                    appendToTerminal(char);
                     
                     // Login detection (no auto-login - manual only)
                     if (!isLoggedIn) {
@@ -619,24 +671,44 @@ int main() {
                     }
                 });
                 
+                // Render terminal with current buffer + current line
+                function renderTerminal() {
+                    const terminal = document.getElementById('terminal');
+                    const fullContent = terminalAnsiBuffer + currentLine;
+                    terminal.innerHTML = fullContent
+                        .replace(/\u00FF/g, '')
+                        .replace(/ /g, '&nbsp;')
+                        .replace(/\n/g, '<br>');
+                    terminal.scrollTop = terminal.scrollHeight;
+                }
+                
                 // Process ANSI escape sequences
                 function processEscapeSequence(seq) {
-                    // Log escape sequences for debugging (optional)
-                    // console.log('Escape sequence:', seq.split('').map(c => c.charCodeAt(0).toString(16)).join(' '));
-                    
-                    // Most common sequences:
-                    // ESC[H - cursor home
-                    // ESC[J - clear screen
-                    // ESC[K - clear line
-                    // ESC[nA - cursor up n lines
-                    // ESC[nB - cursor down n lines
-                    // ESC[nC - cursor forward n chars
-                    // ESC[nD - cursor back n chars
-                    // ESC[n;mH - cursor position
-                    // ESC[nm - graphics mode
-                    
-                    // For now, we'll silently consume these sequences
-                    // A full terminal emulator would implement cursor positioning, colors, etc.
+                    // ESC[J or ESC[0J - clear from cursor to end of screen (treat as end of line)
+                    if (seq === '\x1b[J' || seq === '\x1b[0J') {
+                        // Clear from cursor position to end of current line
+                        currentLine = currentLine.substring(0, cursorPos);
+                        renderTerminal();
+                    }
+                    // ESC[K - clear from cursor to end of line
+                    else if (seq === '\x1b[K' || seq === '\x1b[0K') {
+                        currentLine = currentLine.substring(0, cursorPos);
+                        renderTerminal();
+                    }
+                    // ESC[2K - clear entire line
+                    else if (seq === '\x1b[2K') {
+                        currentLine = '';
+                        cursorPos = 0;
+                        renderTerminal();
+                    }
+                    // ESC[2J - clear entire screen
+                    else if (seq === '\x1b[2J') {
+                        terminalAnsiBuffer = '';
+                        currentLine = '';
+                        cursorPos = 0;
+                        renderTerminal();
+                    }
+                    // Other sequences: silently consume for now
                 }
 
                 emulator.add_listener("emulator-ready", function() {
