@@ -4,39 +4,31 @@
 
 echo "Setting up Alpine Linux for C++ development..."
 
+# Increase tmpfs size before package installation
+mount -o remount,size=400M /tmp 2>/dev/null || true
+
+# up ip link
+modprobe ne2k-pci
+ip link set eth0 up
+udhcpc -i eth0
+
 # Update package manager
+echo "http://dl-cdn.alpinelinux.org/alpine/v3.23/main" > /etc/apk/repositories
+echo "http://dl-cdn.alpinelinux.org/alpine/v3.23/community" >> /etc/apk/repositories
+
 apk update
 
-# Install essential development tools
-apk add --no-cache \
-    gcc \
-    g++ \
-    make \
-    cmake \
-    gdb \
-    binutils \
-    libc-dev \
-    linux-headers \
-    musl-dev
+# Install ONLY essential development tools (core compiler)
+# Using build-base package which includes gcc, g++, make, libc-dev, etc.
+apk add --no-cache build-base
 
-# Install additional useful tools
+# Install minimal additional tools
 apk add --no-cache \
     nano \
-    vim \
-    wget \
-    curl \
-    tar \
-    gzip \
-    unzip \
-    git
+    gdb
 
-# Install Python and Node.js for future expansion
-apk add --no-cache \
-    python3 \
-    python3-dev \
-    py3-pip \
-    nodejs \
-    npm
+# Optional: Uncomment if you need these (requires more memory)
+# apk add --no-cache cmake git python3 nodejs
 
 # Create user directories
 mkdir -p /home/user

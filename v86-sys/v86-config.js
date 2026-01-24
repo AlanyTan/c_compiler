@@ -6,7 +6,7 @@
 
 const V86_CONFIG = {
     wasm_path: "v86.wasm",
-    memory_size: 128 * 1024 * 1024, // 128MB RAM
+    memory_size: 512 * 1024 * 1024, // 512MB RAM (increased for package installation)
     vga_memory_size: 8 * 1024 * 1024, // 8MB VGA memory
     
     screen_container: document.getElementById("screen_container"),
@@ -81,7 +81,7 @@ const V86_PROD_CONFIG = {
     log_level: 0,
     
     // Memory optimization
-    memory_size: 128 * 1024 * 1024,
+    memory_size: 512 * 1024 * 1024, // Increased for package installation
     vga_memory_size: 4 * 1024 * 1024, // Reduced VGA memory for more RAM
     
     // Disable unnecessary features for production
