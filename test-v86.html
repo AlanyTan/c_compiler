@@ -314,7 +314,7 @@
             const requiredFiles = [
                 'bios/seabios.bin',
                 'bios/vgabios.bin', 
-                'images/alpine-virt-3.23.2-x86.iso',
+                'images/alpine-v86state.bin',
                 'build/libv86.js',
                 'build/v86.wasm'
             ];
@@ -565,9 +565,8 @@ int main() {
                     vga_bios: {
                         url: "bios/vgabios.bin",
                     },
-                    cdrom: {
-                        url: "images/alpine-virt-3.23.2-x86.iso",
-                        async: false,
+                    initial_state: {
+                        url: "images/alpine-v86state.bin",
                     },
                     network_relay_url: "wss://relay.widgetry.org/",
                     filesystem: {},
@@ -617,13 +616,6 @@ int main() {
                             loginBuffer = loginBuffer.slice(-100);
                         }
                         
-                        // Detect successful login (shell prompt)
-                        if (loginBuffer.includes('localhost:~#') || loginBuffer.includes('localhost:/#')) {
-                            appendToTerminal('\n=== 已成功登录为 root ===\n');
-                            appendToTerminal('现在您可以直接在此终端输入命令\n');
-                            updateSystemStatus('Alpine Linux 已就绪', 'success');
-                            isLoggedIn = true;
-                        }
                     }
                 });
                 
@@ -656,7 +648,6 @@ int main() {
 
                 emulator.add_listener("emulator-started", function() {
                     updateSystemStatus('Linux 正在启动...', 'warning');
-                    appendToTerminal('=== Linux 正在启动 ===\n');
                 });
                 
                 emulator.add_listener("download-progress", function(e) {
@@ -697,6 +688,8 @@ int main() {
             // Terminal operations
             document.getElementById('clear-terminal-btn').addEventListener('click', clearTerminal);
             document.getElementById('restart-vm-btn').addEventListener('click', restartVM);
+            document.getElementById('save-state-btn').addEventListener('click', saveVMState);
+            document.getElementById('enable-network-btn').addEventListener('click', enableNetwork);
             document.getElementById('system-info-btn').addEventListener('click', showSystemInfo);
             document.getElementById('debug-vm-btn').addEventListener('click', debugVM);
             
@@ -859,6 +852,94 @@ int main() {
             } else {
                 appendToTerminal('虚拟机未初始化\n');
             }
+        }
+
+        /**
+         * Save VM state for instant boot
+         */
+        async function saveVMState() {
+            if (!emulator) {
+                alert('虚拟机未初始化');
+                return;
+            }
+            
+            updateSystemStatus('正在保存系统状态...', 'info');
+            appendToTerminal('\n=== 保存虚拟机状态 ===\n');
+            appendToTerminal('请稍候，正在创建快照...\n');
+            
+            try {
+                const state = await emulator.save_state();
+                
+                // Download the state file
+                const blob = new Blob([state], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'alpine-v86state.bin';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                updateSystemStatus('状态已保存！', 'success');
+                appendToTerminal('✓ 状态已保存为 alpine-v86state.bin\n');
+                appendToTerminal('文件大小: ' + (state.byteLength / 1024 / 1024).toFixed(2) + ' MB\n');
+                appendToTerminal('\n下一步:\n');
+                appendToTerminal('1. 将文件复制到 images/ 目录\n');
+                appendToTerminal('2. 刷新页面即可享受秒速启动！\n');
+            } catch (error) {
+                console.error('Save state exception:', error);
+                alert('保存失败: ' + error.message);
+                appendToTerminal('错误: ' + error.message + '\n');
+            }
+        }
+
+        /**
+         * Enable network in Alpine Linux
+         */
+        function enableNetwork() {
+            if (!emulator) {
+                alert('虚拟机未初始化');
+                return;
+            }
+            
+            if (!isLoggedIn) {
+                alert('请等待系统完全启动后再启用网络');
+                appendToTerminal('\n提示: 等待自动登录完成...\n');
+                return;
+            }
+            
+            appendToTerminal('\n=== 启用网络 ===\n');
+            appendToTerminal('正在配置网络接口...\n\n');
+            
+            // Step 1: Load network driver
+            appendToTerminal('步骤 1/4: 加载网络驱动\n');
+            sendCommand('modprobe ne2k-pci 2>&1\n');
+            
+            // Step 2: Bring up interface
+            setTimeout(() => {
+                appendToTerminal('步骤 2/4: 启动网络接口\n');
+                sendCommand('ip link set eth0 up 2>&1\n');
+            }, 1500);
+            
+            // Step 3: Get IP via DHCP
+            setTimeout(() => {
+                appendToTerminal('步骤 3/4: 获取 IP 地址 (DHCP)\n');
+                sendCommand('udhcpc -i eth0 2>&1\n');
+            }, 3000);
+            
+            // Step 4: Show status and test
+            setTimeout(() => {
+                appendToTerminal('步骤 4/4: 检查网络状态\n');
+                sendCommand('ip addr show eth0\n');
+            }, 5000);
+            
+            setTimeout(() => {
+                appendToTerminal('\n测试网络连接:\n');
+                sendCommand('ping -c 3 1.1.1.1 || echo "网络连接失败"\n');
+            }, 6500);
+            
+            appendToTerminal('\n等待配置完成...\n');
         }
 
         /**
@@ -1080,16 +1161,10 @@ int main() {
         function handleMissingFiles(missingFiles, fileDetails) {
             updateSystemStatus('缺少系统文件', 'danger');
             
-            let message = '以下文件缺失，需要下载:\n\n';
+            let message = '以下文件缺失:\n\n';
             missingFiles.forEach(file => {
                 message += '❌ ' + file + '\n';
             });
-            
-            message += '\n📋 设置说明:\n';
-            message += '1. 下载 SeaBIOS: bios/seabios.bin\n';
-            message += '2. 下载 VGA BIOS: bios/vgabios.bin\n';
-            message += '3. 下载 Alpine Linux: v86-sys/alpine-linux.iso\n';
-            message += '\n详情请参考 V86_MIGRATION_COMPLETE.md';
             
             appendToTerminal(message);
             
@@ -1108,30 +1183,6 @@ int main() {
             appendToTerminal('1. 检查网络连接\n');
             appendToTerminal('2. 下载本地 v86 库到 v86-lib/ 目录\n');
             appendToTerminal('3. 参考 V86_MIGRATION_COMPLETE.md 设置说明\n');
-        }
-        
-        /**
-         * Show download instructions
-         */
-        function showDownloadInstructions() {
-            const instructions = `
-📥 下载链接和说明:
-
-1. V86 库文件:
-   - libv86.js: https://github.com/copy/v86/releases
-   - v86.wasm: https://github.com/copy/v86/releases
-   
-2. BIOS 文件:
-   - SeaBIOS: https://github.com/copy/v86/raw/master/bios/seabios.bin
-   - VGA BIOS: https://github.com/copy/v86/raw/master/bios/vgabios.bin
-   
-3. Alpine Linux ISO:
-   - 下载: https://dl-cdn.alpinelinux.org/alpine/v3.18/releases/x86_64/alpine-standard-3.18.4-x86_64.iso
-   - 重命名为: v86-sys/alpine-linux.iso
-
-完成下载后刷新页面即可使用现代 C++ 编译环境！
-`;
-            appendToTerminal(instructions);
         }
         
         // Initialize the application when page loads

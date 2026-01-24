@@ -21,9 +21,26 @@ The Alpine Linux environment includes:
 ## V86 Setup Process
 
 1. Download v86 library from: https://github.com/copy/v86
-2. Create Alpine Linux disk image using the setup script
+2. Create Alpine Linux disk image
+2.1. V86 libraries:
+   - libv86.js: https://github.com/copy/v86/releases
+   - v86.wasm: https://github.com/copy/v86/releases
+   - libv86.js ^(save to build/libv86.js^)
+   - v86.wasm ^(save to build/v86.wasm^)   
+
+2.2. BIOS image:
+   - SeaBIOS: https://github.com/copy/v86/raw/master/bios/seabios.bin
+      ^(save to bios/seabios.bin^)
+   - VGA BIOS: https://github.com/copy/v86/raw/master/bios/vgabios.bin
+      ^(save to bios/vgabios.bin^)   
+
+2.3. Alpine Linux ISO:
+   - alpine Linux iso: https://dl-cdn.alpinelinux.org/alpine/v3.18/releases/x86_64/alpine-standard-3.23.2-x86_64.iso
+   - ^(save to v86-sys/alpine-linux.iso)
+
 3. Configure v86 with the provided configuration
 4. Integrate with ACE editor and terminal interface
+
 
 ## Memory Configuration
 
