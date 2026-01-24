@@ -644,11 +644,12 @@ int main() {
                         return;
                     }
                     
+                    // Always overwrite at cursor position (like a real terminal)
                     if (cursorPos >= currentLine.length) {
-                        // Append to end
+                        // At or beyond end - append
                         currentLine += char;
                     } else {
-                        // Overwrite at cursor position
+                        // In middle - overwrite the character at cursor position
                         currentLine = currentLine.substring(0, cursorPos) + char + currentLine.substring(cursorPos + 1);
                     }
                     cursorPos++;
@@ -672,6 +673,7 @@ int main() {
                 function renderTerminal() {
                     const terminal = document.getElementById('terminal');
                     const fullContent = terminalAnsiBuffer + currentLine;
+                    console.log('Render - cursorPos:', cursorPos, 'currentLine:', JSON.stringify(currentLine), 'length:', currentLine.length);
                     terminal.innerHTML = fullContent
                         .replace(/\u00FF/g, '')
                         .replace(/ /g, '&nbsp;')
