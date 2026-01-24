@@ -1,0 +1,26 @@
+# Large binary files - VM state and ISO images
+images/*.bin
+images/*.iso
+*.bin
+*.iso
+
+# Build artifacts
+build/
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.log
