@@ -605,40 +605,40 @@ int main() {
                 }
             });
             
-            // // Handle paste events
-            // terminal.addEventListener('paste', function(e) {
-            //     if (!emulator) return;
+            // Handle paste events
+            terminal.addEventListener('paste', function(e) {
+                if (!emulator) return;
                 
-            //     e.preventDefault(); // Prevent default paste behavior
+                e.preventDefault(); // Prevent default paste behavior
                 
-            //     // Get pasted text from clipboard
-            //     const pastedText = e.clipboardData.getData('text');
+                // Get pasted text from clipboard
+                const pastedText = e.clipboardData.getData('text');
                 
-            //     // Send each character to the emulator
-            //     for (let i = 0; i < pastedText.length; i++) {
-            //         const charCode = pastedText.charCodeAt(i);
-            //         if (emulator && emulator.bus && emulator.bus.send) {
-            //             emulator.bus.send("serial0-input", charCode);
-            //         }
-            //     }
+                // Send each character to the emulator
+                for (let i = 0; i < pastedText.length; i++) {
+                    const charCode = pastedText.charCodeAt(i);
+                    if (emulator && emulator.bus && emulator.bus.send) {
+                        emulator.bus.send("serial0-input", charCode);
+                    }
+                }
                 
-            //     console.log('Pasted text to terminal:', pastedText);
-            // });
+                console.log('Pasted text to terminal:', pastedText);
+            });
             
-            // // Prevent manual editing of terminal content
-            // // contenteditable is only for enabling paste context menu
-            // terminal.addEventListener('input', function(e) {
-            //     e.preventDefault();
-            //     // Don't allow manual editing - terminal content is controlled by VM output
-            //     return false;
-            // });
+            // Prevent manual editing of terminal content
+            // contenteditable is only for enabling paste context menu
+            terminal.addEventListener('input', function(e) {
+                e.preventDefault();
+                // Don't allow manual editing - terminal content is controlled by VM output
+                return false;
+            });
             
-            // terminal.addEventListener('beforeinput', function(e) {
-            //     // Block all input except paste (which we handle separately)
-            //     if (e.inputType !== 'insertFromPaste') {
-            //         e.preventDefault();
-            //     }
-            // });
+            terminal.addEventListener('beforeinput', function(e) {
+                // Block all input except paste (which we handle separately)
+                if (e.inputType !== 'insertFromPaste') {
+                    e.preventDefault();
+                }
+            });
             
             // Prevent contenteditable cursor from moving on mousedown
             terminal.addEventListener('mousedown', function(e) {
@@ -706,7 +706,6 @@ int main() {
 
                 emulator.add_listener("serial0-output-byte", function(byte) {
                     const char = String.fromCharCode(byte);
-                    console.log('Serial output char:', JSON.stringify(char), 'byte:', byte);
                     // Handle ANSI escape sequences
                     if (char === '\x1b') { // ESC character
                         inEscapeSequence = true;
@@ -817,7 +816,6 @@ int main() {
                     
                     // Now insert cursor at the correct position in the cleaned line
                     let lineWithCursor = cleanLine;
-                    console.log('Current cursorPos:', cursorPos, 'currentLine:', cleanLine);
                     if (cursorPos >= 0 && cursorPos <= currentLine.length) {
                         // Calculate position in the cleaned string (each space became &nbsp; = 6 chars)
                         let cleanPos = 0;
@@ -907,6 +905,15 @@ int main() {
                     appendToTerminal('\n=== Linux 系统就绪 ===\n');
                     appendToTerminal('您可以使用下面的按钮编译和运行代码\n');
                     appendToTerminal('或直接点击此终端窗口输入命令\n');
+                    
+                    // Send Enter to show command prompt, then render after VM responds
+                    setTimeout(() => {
+                        emulator.bus.send("serial0-input", 13);
+                        // Give VM time to send prompt, then force a render
+                        setTimeout(() => {
+                            renderTerminal();
+                        }, 100);
+                    }, 100);
                     
                     // Force re-enable text selection after V86 loads
                     setTimeout(() => {
