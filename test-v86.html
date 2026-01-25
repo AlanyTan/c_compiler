@@ -216,9 +216,6 @@
                             <button type="button" class="btn btn-sm btn-default" id="clear-terminal-btn">清空</button>
                             <button type="button" class="btn btn-sm btn-warning" id="restart-vm-btn">重启虚拟机</button>
                             <button type="button" class="btn btn-sm btn-success" id="save-state-btn">保存状态</button>
-                            <button type="button" class="btn btn-sm btn-info" id="enable-network-btn">启用网络</button>
-                            <button type="button" class="btn btn-sm btn-info" id="system-info-btn">系统信息</button>
-                            <button type="button" class="btn btn-sm btn-danger" id="debug-vm-btn">调试模式</button>
                         </div>
                     </div>
                     <div class="panel-body">
@@ -692,7 +689,7 @@ int main() {
                     initial_state: {
                         url: "images/alpine-v86state.bin",
                     },
-                    network_relay_url: "wss://relay.widgetry.org/",
+                    // network_relay_url: "wss://relay.widgetry.org/",
                     filesystem: {},
                     autostart: true,
                 });
@@ -983,9 +980,6 @@ int main() {
             document.getElementById('clear-terminal-btn').addEventListener('click', clearTerminal);
             document.getElementById('restart-vm-btn').addEventListener('click', restartVM);
             document.getElementById('save-state-btn').addEventListener('click', saveVMState);
-            document.getElementById('enable-network-btn').addEventListener('click', enableNetwork);
-            document.getElementById('system-info-btn').addEventListener('click', showSystemInfo);
-            document.getElementById('debug-vm-btn').addEventListener('click', debugVM);
             
             // Format code
             document.getElementById('format-btn').addEventListener('click', formatCode);
@@ -1185,88 +1179,6 @@ int main() {
                 console.error('Save state exception:', error);
                 alert('保存失败: ' + error.message);
                 appendToTerminal('错误: ' + error.message + '\n');
-            }
-        }
-
-        /**
-         * Enable network in Alpine Linux
-         */
-        function enableNetwork() {
-            if (!emulator) {
-                alert('虚拟机未初始化');
-                return;
-            }
-            
-            if (!isLoggedIn) {
-                alert('请等待系统完全启动后再启用网络');
-                appendToTerminal('\n提示: 等待自动登录完成...\n');
-                return;
-            }
-            
-            appendToTerminal('\n=== 启用网络 ===\n');
-            appendToTerminal('正在配置网络接口...\n\n');
-            
-            // Step 1: Load network driver
-            appendToTerminal('步骤 1/4: 加载网络驱动\n');
-            sendCommand('modprobe ne2k-pci 2>&1\n');
-            
-            // Step 2: Bring up interface
-            setTimeout(() => {
-                appendToTerminal('步骤 2/4: 启动网络接口\n');
-                sendCommand('ip link set eth0 up 2>&1\n');
-            }, 1500);
-            
-            // Step 3: Get IP via DHCP
-            setTimeout(() => {
-                appendToTerminal('步骤 3/4: 获取 IP 地址 (DHCP)\n');
-                sendCommand('udhcpc -i eth0 2>&1\n');
-            }, 3000);
-            
-            // Step 4: Show status and test
-            setTimeout(() => {
-                appendToTerminal('步骤 4/4: 检查网络状态\n');
-                sendCommand('ip addr show eth0\n');
-            }, 5000);
-            
-            setTimeout(() => {
-                appendToTerminal('\n测试网络连接:\n');
-                sendCommand('ping -c 3 1.1.1.1 || echo "网络连接失败"\n');
-            }, 6500);
-            
-            appendToTerminal('\n等待配置完成...\n');
-        }
-
-        /**
-         * Debug VM status and force tests
-         */
-        function debugVM() {
-            appendToTerminal('\n=== 调试模式激活 ===\n');
-            
-            if (!emulator) {
-                appendToTerminal('错误: 虚拟机未初始化\n');
-                return;
-            }
-            
-            appendToTerminal('发送测试命令...\n');
-            sendCommand('echo "Debug test"\n');
-            sendCommand('ls --color /\n');
-            
-            appendToTerminal('调试命令已发送，请等待响应...\n');
-        }
-
-        /**
-         * Show system information
-         */
-        function showSystemInfo() {
-            if (emulator) {
-                appendToTerminal('\n=== 系统信息 ===\n');
-                appendToTerminal('虚拟机: V86 x86 模拟器\n');
-                appendToTerminal('内存: 512MB RAM\n');
-                appendToTerminal('系统: Linux (32-bit)\n');
-                sendCommand('uname -a\n');
-                sendCommand('gcc --version | head -1\n');
-            } else {
-                appendToTerminal('系统信息: V86 x86 512 RAM\n');
             }
         }
 
