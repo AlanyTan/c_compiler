@@ -91,6 +91,31 @@
         border-left: 3px solid #00aa00;
       }
 
+      #vm-file-modal {
+        overflow-y: hidden;
+      }
+
+      #vm-file-modal .modal-body {
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      #vm-file-modal .modal-header {
+        position: relative;
+        padding-right: 42px;
+      }
+
+      #vm-file-modal .modal-header .close {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        width: 28px;
+        height: 28px;
+        line-height: 24px;
+        margin: 0;
+        z-index: 1;
+      }
+
       .loading {
         display: inline-block;
         width: 20px;
@@ -188,7 +213,7 @@
                   type="text"
                   class="form-control"
                   id="filename"
-                  value="main.c"
+                  value="untitled.c"
                   placeholder="输入文件名"
                 />
               </div>
@@ -1773,8 +1798,8 @@ int main(void) {
        * Create new file (writes default code to VM)
        */
       function newFile() {
-        editor.setValue(DEFAULT_C_CODE, -1);
-        document.getElementById("filename").value = "main.c";
+        editor.setValue("", -1);
+        document.getElementById("filename").value = "untitled.c";
         clearErrorAnnotations();
         hideErrorPanel();
         saveEditorToVM();
