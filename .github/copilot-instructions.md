@@ -85,7 +85,7 @@ var gcc_row_col_type_parse_re = /(\d+):(\d+):\s*(.+)/;
 - **VM System**: `openrisc-sys/` contains complete Linux environment
   - `basefs-compile.json`: VM filesystem configuration for compiler environment
   - `kernel/vmlinux.bin.bz2`: Linux kernel image
-  - `fs/`: Complete filesystem tree with GCC toolchain
+  - `archlinux32/`: Complete filesystem tree with GCC toolchain
 
 ## Performance Considerations
 

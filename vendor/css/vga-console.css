@@ -1,0 +1,32 @@
+#screen_container {
+  background-color: #000;
+  text-align: center;
+  padding: 10px;
+  outline: none;
+}
+
+#screen_container canvas {
+  border: 2px solid #ccc;
+  max-width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+#screen_container:focus {
+  box-shadow: 0 0 0 2px #5bc0de inset;
+}
+
+#vga-keyboard-proxy {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#vga-screen-panel {
+  min-height: 400px;
+}

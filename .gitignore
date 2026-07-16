@@ -1,11 +1,6 @@
-# Large binary files - VM state and ISO images
-images/*.bin
+# Large binary files - ISO images
 images/*.iso
-*.bin
-*.iso
-
-# Build artifacts
-build/
+archlinux32/**
 
 # Node modules
 node_modules/
@@ -24,3 +19,5 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.log
+
+.codex

@@ -1,0 +1,24 @@
+{
+  "vendor": "xtermjs",
+  "repository": "https://github.com/xtermjs/xterm.js",
+  "license": "MIT",
+  "packages": [
+    {
+      "name": "@xterm/xterm",
+      "version": "6.0.0",
+      "tarball": "vendor/xterm/upstream/xterm-xterm-6.0.0.tgz",
+      "package_dir": "vendor/xterm/packages/xterm",
+      "runtime_js": "vendor/xterm/packages/xterm/lib/xterm.js",
+      "runtime_css": "vendor/xterm/packages/xterm/css/xterm.css",
+      "license_file": "vendor/xterm/packages/xterm/LICENSE"
+    },
+    {
+      "name": "@xterm/addon-fit",
+      "version": "0.11.0",
+      "tarball": "vendor/xterm/upstream/xterm-addon-fit-0.11.0.tgz",
+      "package_dir": "vendor/xterm/packages/addon-fit",
+      "runtime_js": "vendor/xterm/packages/addon-fit/lib/addon-fit.js",
+      "license_file": "vendor/xterm/packages/addon-fit/LICENSE"
+    }
+  ]
+}
