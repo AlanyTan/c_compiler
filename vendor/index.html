@@ -1700,15 +1700,8 @@ int main(void) {
           .getElementById("c-standard")
           .addEventListener("change", updateCompilerFlags);
 
-        // When the filename field changes, try to load that file from the VM
-        document
-          .getElementById("filename")
-          .addEventListener("change", function () {
-            if (!emulator || !isSystemReady) return;
-            const name = sanitizeFilename(this.value);
-            if (!name) return;
-            openFileFromVM(name);
-          });
+        // Removed: Auto-load on filename change was causing issues when creating new files.
+        // Users should explicitly use the "VM文件" button to open files from the VM.
       }
 
       /**
