@@ -354,13 +354,39 @@
           <div class="modal-content">
             <div class="modal-header">
               <button type="button" class="close" onclick="hideVMFileModal()">&times;</button>
-              <h4 class="modal-title">打开 VM 文件 (/home/student/src)</h4>
+              <h4 class="modal-title" id="vm-file-modal-title">打开 VM 文件</h4>
             </div>
             <div class="modal-body">
+              <div style="margin-bottom:8px; font-size:12px; color:#888;" id="vm-file-path-bar"></div>
               <ul class="list-group" id="vm-file-list"></ul>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-default" onclick="hideVMFileModal()">取消</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Save File Dialog -->
+      <div class="modal fade" id="save-file-modal" tabindex="-1" role="dialog" style="display:none">
+        <div class="modal-dialog" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <button type="button" class="close" onclick="hideSaveFileModal()">&times;</button>
+              <h4 class="modal-title">保存文件</h4>
+            </div>
+            <div class="modal-body">
+              <div style="margin-bottom:8px; font-size:12px; color:#888;" id="save-path-bar"></div>
+              <ul class="list-group" id="save-file-list"></ul>
+              <div class="form-group" style="margin-top:12px">
+                <label>文件名:</label>
+                <input type="text" class="form-control" id="save-filename-input" placeholder="文件名" />
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-primary" id="save-new-folder-btn" onclick="saveDialogNewFolder()">新建文件夹</button>
+              <button type="button" class="btn btn-success" onclick="doSaveFile()">保存</button>
+              <button type="button" class="btn btn-default" onclick="hideSaveFileModal()">取消</button>
             </div>
           </div>
         </div>
@@ -1284,7 +1310,11 @@ int main(void) {
           for (const name of filenames) {
             const content = await idbLoadFile(name);
             if (content !== null) {
-              await writeFileToVM('/home/student/src/' + name, content);
+              const vmPath = VM_SRC_ROOT + '/' + name;
+              // Ensure parent directories exist for nested paths
+              const parsed = parseRelativePath(name);
+              if (parsed && parsed.dir) mkdirInVM(VM_SRC_ROOT + '/' + parsed.dir);
+              await writeFileToVM(vmPath, content);
               count++;
             }
           }
@@ -1324,27 +1354,160 @@ int main(void) {
         }
       }
 
+      const VM_SRC_ROOT = '/home/student/src';
+
       /**
-       * List source files in a VM directory.
-       * Returns an array of filenames (not full paths).
+       * Reliably check if a VM path is a directory using inode mode bits.
+       * Uses SearchPath + GetInode — the same APIs v86's read_dir uses internally.
+       * S_IFDIR = 0x4000, S_IFREG = 0x8000.
        */
-      function listVMFiles(dirpath) {
-        if (!emulator || !emulator.fs9p) {
-          return [];
+      function isVMDirectory(path) {
+        try {
+          const result = emulator.fs9p.SearchPath(path);
+          if (!result || result.id < 0) return false;
+          const inode = emulator.fs9p.GetInode(result.id);
+          return inode && (inode.mode & 0x4000) !== 0;
+        } catch(e) {
+          return false;
         }
+      }
+
+      /**
+       * List entries in a VM directory.
+       * Returns { files: [], dirs: [] } with names only.
+       */
+      function listVMDir(dirpath) {
+        if (!emulator || !emulator.fs9p) return { files: [], dirs: [] };
         const entries = emulator.fs9p.read_dir(dirpath);
-        if (!entries) return [];
-        // Filter to source-code-like files
-        return entries.filter(name => /\.(c|cpp|cc|cxx|h|hpp|hxx|txt|py|sh|lua)$/i.test(name)).sort();
+        if (!Array.isArray(entries)) return { files: [], dirs: [] };
+        const files = [];
+        const dirs = [];
+        entries.forEach(name => {
+          if (name === '.' || name === '..') return;
+          if (isVMDirectory(dirpath + '/' + name)) {
+            dirs.push(name);
+          } else {
+            files.push(name);
+          }
+        });
+        dirs.sort();
+        files.sort();
+        return { files, dirs };
+      }
+
+      /**
+       * Create a directory (and all parents) in the VM using v86's fs9p.CreateDirectory.
+       * This is the equivalent of 'mkdir -p' — safe to call even if the dir already exists.
+       */
+      function mkdirInVM(dirpath) {
+        if (!emulator || !emulator.fs9p) return;
+        // Walk each path component and create any missing directories
+        const parts = dirpath.split('/').filter(p => p.length > 0);
+        let currentPath = '';
+        for (const part of parts) {
+          currentPath += '/' + part;
+          const existing = emulator.fs9p.SearchPath(currentPath);
+          if (existing.id === -1) {
+            // Component doesn't exist — create it as a directory
+            const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
+            const parent = emulator.fs9p.SearchPath(parentPath);
+            if (parent.id < 0) return; // Parent doesn't exist, give up
+            emulator.fs9p.CreateDirectory(part, parent.id);
+          }
+          // If id >= 0, component already exists; continue
+        }
+      }
+
+      // ── VM File Picker state ──────────────────────────────────────────────────
+      let vmPickerCurrentDir = VM_SRC_ROOT;
+
+      /**
+       * Render the VM file picker at the current directory.
+       */
+      function renderVMFilePicker() {
+        const listEl = document.getElementById('vm-file-list');
+        const pathBar = document.getElementById('vm-file-path-bar');
+        const relPath = vmPickerCurrentDir === VM_SRC_ROOT
+          ? '/'
+          : vmPickerCurrentDir.slice(VM_SRC_ROOT.length);
+        pathBar.textContent = '当前路径: ' + relPath;
+        listEl.innerHTML = '';
+
+        const { files, dirs } = listVMDir(vmPickerCurrentDir);
+
+        // '..' entry for navigation up
+        if (vmPickerCurrentDir !== VM_SRC_ROOT) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.style.cursor = 'pointer';
+          li.innerHTML = '<span class="glyphicon glyphicon-arrow-up"></span> ..';
+          li.addEventListener('click', function() {
+            const parent = vmPickerCurrentDir.split('/').slice(0, -1).join('/');
+            vmPickerCurrentDir = parent.length >= VM_SRC_ROOT.length ? parent : VM_SRC_ROOT;
+            renderVMFilePicker();
+          });
+          listEl.appendChild(li);
+        }
+
+        if (dirs.length === 0 && files.length === 0) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item text-muted';
+          li.textContent = '目录为空';
+          listEl.appendChild(li);
+        }
+
+        dirs.forEach(function(name) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.style.cursor = 'pointer';
+          li.innerHTML = '<span class="glyphicon glyphicon-folder-open" style="margin-right:6px"></span>' + name + '/';
+          li.addEventListener('click', function() {
+            vmPickerCurrentDir = vmPickerCurrentDir + '/' + name;
+            renderVMFilePicker();
+          });
+          listEl.appendChild(li);
+        });
+
+        files.forEach(function(name) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.style.cursor = 'pointer';
+          li.innerHTML = '<span class="glyphicon glyphicon-file" style="margin-right:6px"></span>' + name;
+          li.addEventListener('click', function() {
+            const relFilePath = (vmPickerCurrentDir + '/' + name).slice(VM_SRC_ROOT.length + 1);
+            openFileFromVM(relFilePath);
+            hideVMFileModal();
+          });
+          listEl.appendChild(li);
+        });
+      }
+
+      /**
+       * Validate and parse the relative path from the filename box.
+       * Returns { dir, filename } relative to VM_SRC_ROOT, or null if invalid.
+       */
+      function parseRelativePath(raw) {
+        if (!raw) return null;
+        // Normalize separators, strip leading/trailing slashes
+        const clean = raw.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+        if (!clean) return null;
+        // Each path segment must be safe
+        const parts = clean.split('/');
+        for (const part of parts) {
+          if (!part || !/^[a-zA-Z0-9_.\-]+$/.test(part)) return null;
+        }
+        const filename = parts[parts.length - 1];
+        const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+        return { dir, filename, relPath: clean };
       }
 
       /**
        * Save the current editor content to the VM filesystem.
        */
       async function saveEditorToVM() {
-        const filename = sanitizeFilename(
-          document.getElementById('filename').value || 'main.c'
-        );
+        const rawName = document.getElementById('filename').value || 'main.c';
+        const parsed = parseRelativePath(rawName);
+        const filename = parsed ? parsed.relPath : rawName.replace(/[^a-zA-Z0-9._\-/]/g, '_');
         const content = editor.getValue();
 
         // Always persist to IndexedDB (works even before VM is ready)
@@ -1359,7 +1522,8 @@ int main(void) {
 
         // Also write to VM if available
         if (!emulator || !isSystemReady) return;
-        const vmPath = '/home/student/src/' + filename;
+        const vmPath = VM_SRC_ROOT + '/' + filename;
+        if (parsed && parsed.dir) mkdirInVM(VM_SRC_ROOT + '/' + parsed.dir);
         try {
           await writeFileToVM(vmPath, content);
         } catch (e) {
@@ -1369,16 +1533,17 @@ int main(void) {
 
       /**
        * Load a file from the VM into the editor.
+       * relPath is relative to VM_SRC_ROOT (e.g. 'sub/file.c' or 'file.c')
        */
-      async function openFileFromVM(filename) {
-        const vmPath = '/home/student/src/' + filename;
+      async function openFileFromVM(relPath) {
+        const vmPath = VM_SRC_ROOT + '/' + relPath;
         const content = await readFileFromVM(vmPath);
         if (content === null) {
-          alert('无法读取文件: ' + filename);
+          alert('无法读取文件: ' + relPath);
           return;
         }
         editor.setValue(content, -1);
-        document.getElementById('filename').value = filename;
+        document.getElementById('filename').value = relPath;
         clearErrorAnnotations();
         hideErrorPanel();
       }
@@ -1391,46 +1556,167 @@ int main(void) {
           alert('系统尚未就绪，请等待虚拟机启动完成');
           return;
         }
-        const files = listVMFiles('/home/student/src');
-        const listEl = document.getElementById('vm-file-list');
-        listEl.innerHTML = '';
-        if (files.length === 0) {
-          listEl.innerHTML = '<li class="list-group-item text-muted">目录为空</li>';
-        } else {
-          files.forEach(function(name) {
-            const li = document.createElement('li');
-            li.className = 'list-group-item';
-            li.style.cursor = 'pointer';
-            li.textContent = name;
-            li.addEventListener('click', function() {
-              openFileFromVM(name);
-              hideVMFileModal();
-            });
-            listEl.appendChild(li);
-          });
-        }
-        showVMFileModal();
+        vmPickerCurrentDir = VM_SRC_ROOT;
+        renderVMFilePicker();
+        showModalWithBackdrop('vm-file-modal', 'vm-file-backdrop', hideVMFileModal);
       }
 
       function showVMFileModal() {
-        var modal = document.getElementById('vm-file-modal');
-        modal.style.display = 'block';
-        modal.classList.add('in');
-        document.body.classList.add('modal-open');
-        // Add backdrop
-        var backdrop = document.createElement('div');
-        backdrop.className = 'modal-backdrop fade in';
-        backdrop.id = 'vm-file-backdrop';
-        backdrop.addEventListener('click', hideVMFileModal);
-        document.body.appendChild(backdrop);
+        showModalWithBackdrop('vm-file-modal', 'vm-file-backdrop', hideVMFileModal);
       }
 
       function hideVMFileModal() {
-        var modal = document.getElementById('vm-file-modal');
+        hideModalWithBackdrop('vm-file-modal', 'vm-file-backdrop');
+      }
+
+      // ── Save File Dialog ──────────────────────────────────────────────────────
+      let saveDialogCurrentDir = VM_SRC_ROOT;
+
+      /**
+       * Render the save dialog at saveDialogCurrentDir.
+       */
+      function renderSaveDialog() {
+        const listEl = document.getElementById('save-file-list');
+        const pathBar = document.getElementById('save-path-bar');
+        const relPath = saveDialogCurrentDir === VM_SRC_ROOT
+          ? '/'
+          : saveDialogCurrentDir.slice(VM_SRC_ROOT.length);
+        pathBar.textContent = '当前路径: ' + relPath;
+        listEl.innerHTML = '';
+
+        const { files, dirs } = listVMDir(saveDialogCurrentDir);
+
+        if (saveDialogCurrentDir !== VM_SRC_ROOT) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.style.cursor = 'pointer';
+          li.innerHTML = '<span class="glyphicon glyphicon-arrow-up"></span> ..';
+          li.addEventListener('click', function() {
+            const parent = saveDialogCurrentDir.split('/').slice(0, -1).join('/');
+            saveDialogCurrentDir = parent.length >= VM_SRC_ROOT.length ? parent : VM_SRC_ROOT;
+            renderSaveDialog();
+          });
+          listEl.appendChild(li);
+        }
+
+        dirs.forEach(function(name) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.style.cursor = 'pointer';
+          li.innerHTML = '<span class="glyphicon glyphicon-folder-open" style="margin-right:6px"></span>' + name + '/';
+          li.addEventListener('click', function() {
+            saveDialogCurrentDir = saveDialogCurrentDir + '/' + name;
+            renderSaveDialog();
+          });
+          listEl.appendChild(li);
+        });
+
+        files.forEach(function(name) {
+          const li = document.createElement('li');
+          li.className = 'list-group-item';
+          li.style.cursor = 'pointer';
+          li.style.color = '#888';
+          li.innerHTML = '<span class="glyphicon glyphicon-file" style="margin-right:6px"></span>' + name;
+          li.addEventListener('click', function() {
+            document.getElementById('save-filename-input').value = name;
+          });
+          listEl.appendChild(li);
+        });
+      }
+
+      /**
+       * Create a new folder in the save dialog: just navigate into the new path.
+       * The directory is created automatically by v86 when the first file is saved into it.
+       */
+      function saveDialogNewFolder() {
+        const name = prompt('请输入文件夹名称:');
+        if (!name) return;
+        const safeName = name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+        if (!safeName) return;
+        // Navigate into the new folder — it will be created when a file is saved there
+        saveDialogCurrentDir = saveDialogCurrentDir + '/' + safeName;
+        renderSaveDialog();
+      }
+
+      /**
+       * Perform the actual save from the save dialog.
+       */
+      async function doSaveFile() {
+        const fname = document.getElementById('save-filename-input').value.trim();
+        if (!fname || !/^[a-zA-Z0-9_.\-]+$/.test(fname)) {
+          alert('请输入有效的文件名 (只允许字母、数字、下划线、点、连字符)');
+          return;
+        }
+        const saveDir = saveDialogCurrentDir;
+        const relDir = saveDir === VM_SRC_ROOT ? '' : saveDir.slice(VM_SRC_ROOT.length + 1);
+        const relPath = relDir ? relDir + '/' + fname : fname;
+        const vmPath = VM_SRC_ROOT + '/' + relPath;
+
+        if (!emulator || !isSystemReady) {
+          alert('系统尚未就绪');
+          return;
+        }
+        try {
+          // Ensure parent directory exists, then write
+          const relDir = saveDir === VM_SRC_ROOT ? '' : saveDir.slice(VM_SRC_ROOT.length + 1);
+          if (relDir) mkdirInVM(saveDir);
+          const content = editor.getValue();
+          await writeFileToVM(vmPath, content);
+          // Update filename box
+          document.getElementById('filename').value = relPath;
+          // Persist to IDB
+          await idbSaveFile(relPath, content);
+          await idbSaveMeta('activeFile', relPath);
+          hideSaveFileModal();
+          updateSystemStatus('已保存至 ' + relPath, 'success');
+        } catch(e) {
+          alert('保存失败: ' + e.message);
+        }
+      }
+
+      function showSaveFileModal() {
+        if (!emulator || !isSystemReady) {
+          alert('系统尚未就绪，请等待虚拟机启动完成');
+          return;
+        }
+        // Parse current filename to pre-select folder
+        const raw = document.getElementById('filename').value || '';
+        const parsed = parseRelativePath(raw);
+        if (parsed && parsed.dir) {
+          saveDialogCurrentDir = VM_SRC_ROOT + '/' + parsed.dir;
+        } else {
+          saveDialogCurrentDir = VM_SRC_ROOT;
+        }
+        document.getElementById('save-filename-input').value = parsed ? parsed.filename : raw;
+        renderSaveDialog();
+        showModalWithBackdrop('save-file-modal', 'save-file-backdrop', hideSaveFileModal);
+      }
+
+      function hideSaveFileModal() {
+        hideModalWithBackdrop('save-file-modal', 'save-file-backdrop');
+      }
+
+      // ── Shared modal helpers ──────────────────────────────────────────────────
+      function showModalWithBackdrop(modalId, backdropId, closeCallback) {
+        var modal = document.getElementById(modalId);
+        modal.style.display = 'block';
+        modal.classList.add('in');
+        document.body.classList.add('modal-open');
+        if (!document.getElementById(backdropId)) {
+          var backdrop = document.createElement('div');
+          backdrop.className = 'modal-backdrop fade in';
+          backdrop.id = backdropId;
+          backdrop.addEventListener('click', closeCallback);
+          document.body.appendChild(backdrop);
+        }
+      }
+
+      function hideModalWithBackdrop(modalId, backdropId) {
+        var modal = document.getElementById(modalId);
         modal.style.display = 'none';
         modal.classList.remove('in');
         document.body.classList.remove('modal-open');
-        var backdrop = document.getElementById('vm-file-backdrop');
+        var backdrop = document.getElementById(backdropId);
         if (backdrop) backdrop.remove();
       }
 
@@ -1443,9 +1729,23 @@ int main(void) {
 
       /**
        * Sanitize a filename for safe use in shell commands and paths.
+       * Allows forward slashes so relative paths like 'sub/file.c' are preserved.
        */
       function sanitizeFilename(name) {
-        return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        return name.replace(/[^a-zA-Z0-9._\-/]/g, "_").replace(/\/+/g, '/');
+      }
+
+      /**
+       * Validate a relative source path from the filename box.
+       * Returns the clean relPath string or null if invalid.
+       */
+      function validateSourcePath(raw) {
+        if (!raw) return null;
+        const parsed = parseRelativePath(raw);
+        if (!parsed) return null;
+        // Must end in a source-file extension
+        if (!/\.(c|cpp|cc|cxx|h|hpp|hxx|s|asm)$/i.test(parsed.filename)) return null;
+        return parsed.relPath;
       }
 
       /**
@@ -1594,10 +1894,10 @@ int main(void) {
               await restoreFilesFromIDB();
 
               // 2. Determine which file to open in the editor
-              const filename = sanitizeFilename(
-                document.getElementById('filename').value || 'ex_1.1.c'
-              );
-              const vmPath = '/home/student/src/' + filename;
+              const rawName = document.getElementById('filename').value || 'ex_1.1.c';
+              const parsed0 = parseRelativePath(rawName);
+              const filename = parsed0 ? parsed0.relPath : sanitizeFilename(rawName);
+              const vmPath = VM_SRC_ROOT + '/' + filename;
               const existing = await readFileFromVM(vmPath);
               if (existing !== null && existing.length > 0) {
                 editor.setValue(existing, -1);
@@ -1668,7 +1968,7 @@ int main(void) {
           .addEventListener("click", showVMFilePicker);
         document
           .getElementById("save-btn")
-          .addEventListener("click", saveFile);
+          .addEventListener("click", showSaveFileModal);
         document
           .getElementById("upload-btn")
           .addEventListener("click", uploadFile);
@@ -1706,29 +2006,32 @@ int main(void) {
 
       /**
        * Compile the current editor content on the VM.
+       * relPath is relative to VM_SRC_ROOT (e.g. 'sub/file.c').
        * Returns the exit code (0 = success).
        */
-      async function compile(filename, outputFile) {
+      async function compile(relPath, outputFile) {
         if (!emulator || !isSystemReady) {
           alert("系统尚未就绪，请等待虚拟机启动完成");
           return -1;
         }
 
+        const parsed = parseRelativePath(relPath);
         const code = editor.getValue();
         const flags = document.getElementById("compiler-flags").value;
-        const vmPath = "/home/student/src/" + filename;
+        const vmPath = VM_SRC_ROOT + '/' + relPath;
 
         updateSystemStatus("正在保存文件...", "info");
 
-        // Write source file directly to VM filesystem via 9p API
+        // Ensure parent directory exists, then write source file
+        if (parsed && parsed.dir) mkdirInVM(VM_SRC_ROOT + '/' + parsed.dir);
         await writeFileToVM(vmPath, code);
 
         // Compile with marker-based completion detection
         const markerId = Date.now();
         const compileCmd = [
         // "echo 3 > /proc/sys/vm/drop_caches 2>/dev/null",
-          "cd /home/student/src",
-          "gcc " + flags + " " + filename + " -o " + outputFile + " 2>&1 && echo '##Compile_" + markerId + " DONE##' $?",
+          "cd " + VM_SRC_ROOT,
+          "gcc " + flags + " " + relPath + " -o " + outputFile + " 2>&1 && echo '##Compile_" + markerId + " DONE##' $?",
         ].join("\n ");
 
         const startPos = serialOutput.length;
@@ -1746,15 +2049,29 @@ int main(void) {
       }
 
       /**
+       * Resolve and validate the source path from the filename box.
+       * Shows an error alert and returns null if invalid.
+       */
+      function resolveCompileTarget() {
+        const raw = document.getElementById("filename").value.trim();
+        const relPath = validateSourcePath(raw);
+        if (!relPath) {
+          alert('文件名无效: "' + raw + '"\n\n请确保文件名以 .c/.cpp/.h 等扩展名结尾，路径只允许字母、数字、下划线、点、连字符和斜杠。\n示例: main.c 或 sub_folder/file.c');
+          return null;
+        }
+        return relPath;
+      }
+
+      /**
        * Compile and run code
        */
       async function compileAndRun() {
         try {
-          const filename = sanitizeFilename(
-            document.getElementById("filename").value || "main.c",
-          );
-          const outputFile = "/tmp/" + filename + ".out";
-          const exitCode = await compile(filename, outputFile);
+          const relPath = resolveCompileTarget();
+          if (!relPath) return;
+          const baseName = relPath.replace(/\//g, '_');
+          const outputFile = "/tmp/" + baseName + ".out";
+          const exitCode = await compile(relPath, outputFile);
           if (exitCode !== 0) return;
 
           appendToTerminal("\n=== 运行程序 ===\n\r");
@@ -1773,12 +2090,12 @@ int main(void) {
        */
       async function compileOnly() {
         try {
-          const filename = sanitizeFilename(
-            document.getElementById("filename").value || "main.c",
-          );
-          const outputFile = "/tmp/" + filename + ".out";
+          const relPath = resolveCompileTarget();
+          if (!relPath) return;
+          const baseName = relPath.replace(/\//g, '_');
+          const outputFile = "/tmp/" + baseName + ".out";
           updateSystemStatus("正在编译...", "info");
-          const exitCode = await compile(filename, outputFile);
+          const exitCode = await compile(relPath, outputFile);
           if (exitCode !== 0) return;
           updateSystemStatus("编译完成", "success");
         } catch (error) {
@@ -1799,19 +2116,10 @@ int main(void) {
       }
 
       /**
-       * Save current editor content to VM filesystem
+       * Save current editor content — opens the save dialog.
        */
       async function saveFile() {
-        if (!emulator || !isSystemReady) {
-          alert("系统尚未就绪，请等待虚拟机启动完成");
-          return;
-        }
-        try {
-          await saveEditorToVM();
-          updateSystemStatus("已保存", "success");
-        } catch (e) {
-          alert("保存失败: " + e.message);
-        }
+        showSaveFileModal();
       }
 
       /**
