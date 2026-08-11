@@ -116,6 +116,31 @@
         z-index: 1;
       }
 
+      #save-file-modal {
+        overflow-y: hidden;
+      }
+
+      #save-file-modal .modal-body {
+        max-height: 60vh;
+        overflow-y: auto;
+      }
+
+      #save-file-modal .modal-header {
+        position: relative;
+        padding-right: 42px;
+      }
+
+      #save-file-modal .modal-header .close {
+        position: absolute;
+        top: 8px;
+        right: 12px;
+        width: 28px;
+        height: 28px;
+        line-height: 24px;
+        margin: 0;
+        z-index: 1;
+      }
+
       .loading {
         display: inline-block;
         width: 20px;
@@ -378,8 +403,10 @@
             <div class="modal-body">
               <div style="margin-bottom:8px; font-size:12px; color:#888;" id="save-path-bar"></div>
               <ul class="list-group" id="save-file-list"></ul>
-              <div class="form-group" style="margin-top:12px">
-                <label>文件名:</label>
+            </div>
+            <div style="padding:10px 15px 0;">
+              <div class="form-group" style="margin-bottom:0;">
+                <label style="margin-bottom:4px;">文件名:</label>
                 <input type="text" class="form-control" id="save-filename-input" placeholder="文件名" />
               </div>
             </div>
