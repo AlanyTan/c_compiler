@@ -1358,11 +1358,31 @@ int main(void) {
        * Much more reliable than echo-based file creation through serial.
        */
       async function writeFileToVM(filepath, content) {
-        if (!emulator || !emulator.create_file || !emulator.fs9p) {
-          throw new Error("VM filesystem not available (requires 9p boot mode)");
+        if (!emulator || !emulator.fs9p) {
+          throw new Error("VM filesystem not available");
         }
-        const data = new TextEncoder().encode(content);
-        await emulator.create_file(filepath, data);
+        
+        // Encode content to UTF-8 bytes
+        const utf8bytes = new TextEncoder().encode(content);
+        
+        // Create a "binary string" where each character code = byte value
+        // This works around v86's double-encoding bug in CreateBinaryFile
+        let binaryString = '';
+        for (let i = 0; i < utf8bytes.length; i++) {
+          binaryString += String.fromCharCode(utf8bytes[i]);
+        }
+        
+        // Use CreateTextFile which calls charCodeAt() to extract bytes correctly
+        const parts = filepath.split('/');
+        const filename = parts[parts.length - 1];
+        const dirPath = parts.slice(0, -1).join('/') || '/';
+        
+        const parentResult = emulator.fs9p.SearchPath(dirPath);
+        if (parentResult && parentResult.id >= 0) {
+          await emulator.fs9p.CreateTextFile(filename, parentResult.id, binaryString);
+        } else {
+          throw new Error("Parent directory not found: " + dirPath);
+        }
       }
 
       /**
@@ -1889,16 +1909,24 @@ int main(void) {
           console.log("V86 已创建，等待系统启动...");
 
           emulator.add_listener("serial0-output-byte", function (byte) {
-            const char = String.fromCharCode(byte);
-            appendToTerminal(char);
+            // Write raw byte directly to xterm.js — it handles UTF-8 multi-byte
+            // sequences correctly. String.fromCharCode() would treat each byte
+            // as a Latin-1 code point, breaking multi-byte characters like CJK.
+            if (byte !== 0xFF) { // 0xFF is v86 padding, skip it
+              if (terminal) {
+                terminal.write(new Uint8Array([byte]));
+              } else {
+                pendingTerminalOutput.push(new Uint8Array([byte]));
+              }
+            }
 
+            // serialOutput and loginBuffer are ASCII-only (used for prompt/marker
+            // detection), so Latin-1 byte-per-char encoding is fine here.
+            const char = String.fromCharCode(byte);
             serialOutput += char;
 
-            // Login detection (no auto-login - manual only)
             if (!isLoggedIn) {
               loginBuffer += char;
-
-              // Keep buffer manageable (last 100 chars)
               if (loginBuffer.length > 100) {
                 loginBuffer = loginBuffer.slice(-100);
               }
