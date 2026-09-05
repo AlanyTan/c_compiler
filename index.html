@@ -151,6 +151,12 @@
         animation: spin 1s ease-in-out infinite;
       }
 
+      /* Show wait cursor during compile/run/save operations */
+      body.page-busy,
+      body.page-busy * {
+        cursor: wait !important;
+      }
+
       @keyframes spin {
         to {
           transform: rotate(360deg);
@@ -284,7 +290,7 @@
                   type="text"
                   class="form-control"
                   id="compiler-flags"
-                  value="-std=c23 -Wall -Wextra"
+                  value="-pipe -std=c23 -Wall -Wextra"
                   placeholder="输入 GCC 编译器选项"
                 />
               </div>
@@ -314,6 +320,14 @@
                   id="clear-terminal-btn"
                 >
                   清空
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-sm btn-default"
+                  id="theme-toggle-btn"
+                  title="切换终端颜色主题（适合截图/打印）"
+                >
+                  🌓 配色
                 </button>
                 <button
                   type="button"
@@ -471,9 +485,15 @@
         "rw",
         "root=host9p rootfstype=9p rootflags=trans=virtio,cache=loose",
         "modules=virtio_pci,virtio_blk,virtio_net,9p,9pnet,9pnet_virtio",
+        // v86 is not vulnerable to the host-CPU side-channel attacks these
+        // mitigations address. Disabling them removes substantial emulated
+        // CPU overhead during a cold boot and in syscall-heavy tools.
+        "mitigations=off audit=0",
+        "tsc=reliable random.trust_cpu=on nowatchdog",
       ].join(" ");
 
       const VM_STATE_CANDIDATES = [
+        "archlinux32/archlinux-v86state.bin.zst",
         "archlinux32/archlinux-v86state.bin",
         "archlinux32/v86state.bin",
       ];
@@ -506,6 +526,8 @@
 
       const ENABLE_VGA_CONSOLE = false;
 
+      // Must match the shipped snapshot. For a new copy.sh-style snapshot,
+      // cold-boot at 512 MB, save it, then update this value with that state.
       const VM_RAM_MB = 256;
 
       const VM_REQUIRED_FILES = [
@@ -743,13 +765,15 @@
           autostart: true,
           acpi: false,
           fastboot: true,
-          // disable_speaker: true,
-          // Only serial0 is used4 — disable the other three UARTs
+          disable_speaker: true,
+          // Only serial0 is used — disable the other three UARTs
           uart1: false,
           uart2: false,
           uart3: false,
-          // No network needed for a local compiler
-          net_device: null,
+          // `null` selects v86's default NE2000 device. In this pinned build,
+          // a non-device type keeps the constructor from instantiating a NIC.
+          net_device: { type: "none" },
+          log_level: 0,
         };
 
         if (ENABLE_VGA_CONSOLE) {
@@ -766,7 +790,17 @@
           v86Config.disable_keyboard = true;
         }
 
-        if (plan.mode === "snapshot-9p" || plan.mode === "cold-9p") {
+        if (plan.mode === "snapshot-9p") {
+          // The saved state already contains the 9p inode metadata. Supplying
+          // basefs here downloads and parses the whole fs.json, then v86
+          // discards it because initial_state is present. copy.sh likewise
+          // provides only baseurl when restoring its Arch snapshot.
+          v86Config.filesystem = {
+            baseurl: assets.filesystemBundle.baseurl,
+          };
+        }
+
+        if (plan.mode === "cold-9p") {
           v86Config.filesystem = {
             baseurl: assets.filesystemBundle.baseurl,
             basefs: assets.filesystemBundle.basefs,
@@ -822,17 +856,6 @@
         }
 
         return lines;
-      }
-
-      function showDownloadInstructions() {
-        appendToTerminal("📋 Arch 启动资源准备说明:\n");
-        appendToTerminal("1. 准备 Arch Linux 32 ISO；copy.sh 的 archlinux 配置是 32-bit，不是 x86_64。\n");
-        appendToTerminal("2. 在 QEMU/virt-manager 中安装 Arch32 到 raw 磁盘镜像 archlinux32/arch.img\n");
-        appendToTerminal("3. 运行 ./scripts/v86/prepare-arch-image-for-v86.sh ./archlinux32/arch.img\n");
-        appendToTerminal("4. 运行 ./scripts/v86/export-arch-image-to-9p.sh ./archlinux32/arch.img\n");
-        appendToTerminal("5. 准备 9p rootfs 资源: archlinux32/fs.json 和 archlinux32/arch/\n");
-        appendToTerminal("6. 首次 9p 冷启动完成后，点击“保存状态”\n");
-        appendToTerminal("7. 将状态文件放到 archlinux32/archlinux-v86state.bin；之后刷新页面会优先使用快照秒开。\n");
       }
 
       // Check for required files
@@ -901,6 +924,12 @@ int main(void) {
         // Initialize ACE editor first
         initializeEditor();
         initializeTerminal();
+
+        // Hide "Save VM Status" button if not running on localhost
+        const saveStateBtn = document.getElementById('save-state-btn');
+        if (saveStateBtn && !isLocalhost()) {
+          saveStateBtn.style.display = 'none';
+        }
 
         // Restore editor state from IndexedDB (survives page reloads)
         try {
@@ -1037,6 +1066,34 @@ int main(void) {
       let loginBuffer = "";
       let activeVmInputTarget = "terminal";
       let lastBootAssets = null; // Stored for restart
+      let pendingSerialBytes = [];
+      let serialRenderTimer = null;
+
+      // v86 emits one event per UART byte. Passing every byte to xterm as a
+      // separate write creates thousands of tiny allocations and parser jobs
+      // on the same main thread that runs the VM. Render one short batch per
+      // frame-sized interval instead.
+      function flushSerialOutput() {
+        serialRenderTimer = null;
+        if (pendingSerialBytes.length === 0) return;
+
+        const bytes = Uint8Array.from(pendingSerialBytes);
+        pendingSerialBytes = [];
+
+        if (terminal) {
+          terminal.write(bytes);
+        } else {
+          pendingTerminalOutput.push(bytes);
+        }
+      }
+
+      function queueSerialByte(byte) {
+        if (byte === 0xFF) return; // v86 padding
+        pendingSerialBytes.push(byte);
+        if (serialRenderTimer === null) {
+          serialRenderTimer = setTimeout(flushSerialOutput, 16);
+        }
+      }
 
       function initializeTerminal() {
         const terminalHost = document.getElementById("terminal");
@@ -1109,6 +1166,10 @@ int main(void) {
 
       function sendSerialData(data) {
         if (!emulator || !emulator.bus || !emulator.bus.send) {
+          return;
+        }
+        if (typeof emulator.serial0_send === "function") {
+          emulator.serial0_send(data);
           return;
         }
         for (let i = 0; i < data.length; i++) {
@@ -1192,6 +1253,10 @@ int main(void) {
        */
       function sendRawSerial(text) {
         if (!emulator) return;
+        if (typeof emulator.serial0_send === "function") {
+          emulator.serial0_send(text);
+          return;
+        }
         for (let i = 0; i < text.length; i++) {
           emulator.bus.send("serial0-input", text.charCodeAt(i));
         }
@@ -1848,7 +1913,7 @@ int main(void) {
         lastBootAssets = assets;
         try {
           updateSystemStatus("正在启动虚拟机...", "warning");
-          appendToTerminal("=== 正在初始化 V86 虚拟机 ===\n");
+          console.log("=== 正在初始化 V86 虚拟机 ===\n");
 
           // Create canvas element for VGA display
           const screenContainer = VGAConsole.prepareScreenContainer();
@@ -1909,16 +1974,9 @@ int main(void) {
           console.log("V86 已创建，等待系统启动...");
 
           emulator.add_listener("serial0-output-byte", function (byte) {
-            // Write raw byte directly to xterm.js — it handles UTF-8 multi-byte
-            // sequences correctly. String.fromCharCode() would treat each byte
-            // as a Latin-1 code point, breaking multi-byte characters like CJK.
-            if (byte !== 0xFF) { // 0xFF is v86 padding, skip it
-              if (terminal) {
-                terminal.write(new Uint8Array([byte]));
-              } else {
-                pendingTerminalOutput.push(new Uint8Array([byte]));
-              }
-            }
+            // Keep UTF-8 bytes intact and batch them before handing them to
+            // xterm. xterm decodes multi-byte sequences across each batch.
+            queueSerialByte(byte);
 
             // serialOutput and loginBuffer are ASCII-only (used for prompt/marker
             // detection), so Latin-1 byte-per-char encoding is fine here.
@@ -2039,6 +2097,9 @@ int main(void) {
           .getElementById("clear-terminal-btn")
           .addEventListener("click", clearTerminal);
         document
+          .getElementById("theme-toggle-btn")
+          .addEventListener("click", toggleTerminalTheme);
+        document
           .getElementById("restart-vm-btn")
           .addEventListener("click", restartVM);
         document
@@ -2072,7 +2133,12 @@ int main(void) {
 
         const parsed = parseRelativePath(relPath);
         const code = editor.getValue();
-        const flags = document.getElementById("compiler-flags").value;
+        const configuredFlags = document.getElementById("compiler-flags").value.trim();
+        // Avoid GCC's intermediate files on the emulated filesystem. This is
+        // especially valuable for the cpp -> cc1 -> as pipeline under 9p.
+        const flags = /(^|\s)-pipe(\s|$)/.test(configuredFlags)
+          ? configuredFlags
+          : "-pipe " + configuredFlags;
         const vmPath = VM_SRC_ROOT + '/' + relPath;
 
         updateSystemStatus("正在保存文件...", "info");
@@ -2276,14 +2342,19 @@ int main(void) {
               (state.byteLength / 1024 / 1024).toFixed(2) +
               " MB\n",
           );
-          appendToTerminal("\n下一步:\n");
-          appendToTerminal("1. 将文件移动到 archlinux32/archlinux-v86state.bin\n");
-          appendToTerminal("2. 刷新页面即可享受秒速启动！\n");
         } catch (error) {
           console.error("Save state exception:", error);
           alert("保存失败: " + error.message);
           appendToTerminal("错误: " + error.message + "\n");
         }
+      }
+
+      /**
+       * Check if running on localhost
+       */
+      function isLocalhost() {
+        const hostname = window.location.hostname;
+        return hostname === 'localhost' || hostname === '127.0.0.1';
       }
 
       /**
@@ -2319,10 +2390,45 @@ int main(void) {
         terminal.write(normalizedText);
       }
 
+      const TERMINAL_THEME_DARK = {
+        background: "#000000",
+        foreground: "#ffffff",
+        cursor: "#00ff00",
+        cursorAccent: "#000000",
+        selectionBackground: "rgba(255, 255, 255, 0.25)",
+      };
+
+      const TERMINAL_THEME_LIGHT = {
+        background: "#ffffff",
+        foreground: "#000000",
+        cursor: "#000000",
+        cursorAccent: "#ffffff",
+        selectionBackground: "rgba(0, 0, 0, 0.2)",
+      };
+
+      let _terminalThemeIsLight = false;
+
+      function toggleTerminalTheme() {
+        _terminalThemeIsLight = !_terminalThemeIsLight;
+        const theme = _terminalThemeIsLight ? TERMINAL_THEME_LIGHT : TERMINAL_THEME_DARK;
+        if (terminal) {
+          terminal.options.theme = theme;
+        }
+        const btn = document.getElementById('theme-toggle-btn');
+        if (btn) {
+          btn.textContent = _terminalThemeIsLight ? '🌑 配色' : '🌓 配色';
+        }
+      }
+
       /**
        * Clear terminal
        */
       function clearTerminal() {
+        pendingSerialBytes = [];
+        if (serialRenderTimer !== null) {
+          clearTimeout(serialRenderTimer);
+          serialRenderTimer = null;
+        }
         if (terminal) {
           terminal.clear();
         } else {
@@ -2342,6 +2448,9 @@ int main(void) {
         if (vmStatus) {
           vmStatus.textContent = message;
         }
+
+        // Show wait cursor during any in-progress operation (type === 'info')
+        document.body.classList.toggle('page-busy', type === 'info');
       }
 
       /**
@@ -2425,8 +2534,6 @@ int main(void) {
 
         appendToTerminal(message);
 
-        // Show download instructions
-        showDownloadInstructions();
       }
 
       /**
