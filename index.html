@@ -381,8 +381,12 @@
               </div>
             </div>
           </div>
+        </div>
+      </div>
 
-          <!-- Error Display Panel -->
+      <!-- Error Display Panel (Full Width) -->
+      <div class="row">
+        <div class="col-md-12">
           <div
             class="panel panel-default"
             id="error-panel"
@@ -1887,17 +1891,26 @@ int main(void) {
        * Strip ANSI escape codes from text
        */
       function stripAnsiCodes(text) {
-        // Remove \x1b[...letter sequences (CSI - Control Sequence Introducer)
+        // Remove CSI sequences: ESC [ ... letter
+        // Matches: \x1b[0-9;?]*[A-Za-z]
         text = text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
         
-        // Remove \x1b]...BEL sequences (OSC - Operating System Command)
+        // Remove SGR (Select Graphic Rendition) sequences: ESC [ ... m
+        // These are text formatting codes
+        text = text.replace(/\x1b\[[0-9;]*m/g, '');
+        
+        // Remove OSC sequences: ESC ] ... (BEL or ST terminator)
+        // OSC ends with BEL (\x07) or ST (ESC \, which is \x1b\)
         text = text.replace(/\x1b\][^\x07]*\x07/g, '');
+        text = text.replace(/\x1b\][^\x1b]*\x1b\\/g, '');
         
-        // Remove [...letter sequences if ESC char was already stripped
-        text = text.replace(/\[\??\d*[A-Za-z]/g, '');
+        // Remove remaining incomplete sequences (when ESC was already removed)
+        // Only remove [Nm patterns where N is 0-9, m is the terminator (SGR)
+        text = text.replace(/\[[0-9;]*m/g, '');
         
-        // Remove ]... sequences (incomplete OSC with missing ESC)
-        text = text.replace(/\][^[\n]*/g, '');
+        // Remove cursor positioning and other [letter patterns when ESC is missing
+        // but be conservative - only match if followed by actual control letters
+        text = text.replace(/\[[0-9;?]*[A-HJKSTf]/g, '');
         
         return text;
       }
