@@ -273,10 +273,10 @@
                   class="btn btn-warning"
                   id="compile-only-btn"
                 >
-                  <span class="glyphicon glyphicon-cog"></span> 仅编译
+                  <span class="glyphicon glyphicon-import"></span> 仅编译
                 </button>
-                <button type="button" class="btn btn-info" id="format-btn">
-                  <span class="glyphicon glyphicon-align-left"></span> 格式化
+                <button type="button" class="btn btn-info" id="run-only-btn">
+                  <span class="glyphicon glyphicon-play-circle"></span> 仅运行
                 </button>
               </div>
               <div class="btn-group pull-right" role="group">
@@ -2178,8 +2178,8 @@ int main(void) {
 
         // Format code
         document
-          .getElementById("format-btn")
-          .addEventListener("click", formatCode);
+          .getElementById("run-only-btn")
+          .addEventListener("click", runOnly);
 
         // C standard selection
         document
@@ -2293,6 +2293,24 @@ int main(void) {
         } catch (error) {
           console.error("Compilation failed:", error);
           updateSystemStatus(error.message || "编译失败", "danger");
+        }
+      }
+
+      /**
+       * Run only (no compilation) — executes the last compiled output file.
+       */
+      async function runOnly() {
+        try {
+          const relPath = resolveCompileTarget();
+          if (!relPath) return;
+          const baseName = relPath.replace(/\//g, '_');
+          const outputFile = "/tmp/" + baseName + ".out";
+          updateSystemStatus("正在运行...", "info");
+          await sendCommand(outputFile + "\n");
+          updateSystemStatus("运行完成", "success");
+        } catch (error) {
+          console.error("Execution failed:", error);
+          updateSystemStatus(error.message || "运行失败", "danger");
         }
       }
 
@@ -2428,13 +2446,6 @@ int main(void) {
         return hostname === 'localhost' || hostname === '127.0.0.1';
       }
 
-      /**
-       * Format code
-       */
-      function formatCode() {
-        // Use ACE's beautify extension
-        ace.require("ace/ext/beautify").beautify(editor.session);
-      }
 
       /**
        * Update compiler flags based on C standard
