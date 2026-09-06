@@ -1,0 +1,5 @@
+#!/usr/bin/bash
+
+# agetty supplies login-style arguments. This image is an isolated browser VM,
+# so skip PAM/systemd session setup and enter the teaching shell directly.
+exec /usr/bin/bash --login

@@ -1,0 +1,37 @@
+#!/usr/bin/bash
+set -u
+
+export HOME=/root
+export LANG=C.UTF-8
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/bin
+
+mkdir -p /proc /sys /dev/pts /dev/shm /run /tmp /home/student/src
+
+mountpoint -q /proc || mount -t proc -o nosuid,noexec,nodev proc /proc
+mountpoint -q /sys || mount -t sysfs -o nosuid,noexec,nodev sysfs /sys
+mountpoint -q /dev || mount -t devtmpfs -o nosuid devtmpfs /dev
+mountpoint -q /dev/pts || mount -t devpts -o nosuid,noexec,gid=5,mode=620 devpts /dev/pts
+mountpoint -q /dev/shm || mount -t tmpfs -o nosuid,nodev,mode=1777 tmpfs /dev/shm
+mountpoint -q /run || mount -t tmpfs -o nosuid,nodev,mode=0755 tmpfs /run
+mountpoint -q /tmp || mount -t tmpfs -o nosuid,nodev,mode=1777 tmpfs /tmp
+
+hostname v86
+
+if [[ -c /dev/ttyS0 ]]; then
+    exec </dev/ttyS0 >/dev/ttyS0 2>&1
+else
+    exec </dev/console >/dev/console 2>&1
+fi
+
+printf '\nArch Linux 32 for v86\n'
+printf '9p root is mounted; /tmp and /run use tmpfs.\n\n'
+
+trap 'sync' EXIT
+while true; do
+    /usr/bin/agetty \
+        --login-program /usr/local/sbin/v86-login \
+        --autologin root \
+        --noclear \
+        --keep-baud 115200 ttyS0 vt100
+    sleep 1
+done

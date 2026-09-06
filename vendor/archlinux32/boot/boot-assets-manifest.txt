@@ -1,6 +1,0 @@
-source_image=/home/alan/workspaces/c_compiler2/archlinux32/arch.img
-root_partition=/dev/mapper/loop0p2
-kernel_file=/home/alan/workspaces/c_compiler2/archlinux32/boot/vmlinuz-arch
-initramfs_file=/home/alan/workspaces/c_compiler2/archlinux32/boot/initramfs-arch.img
-fs_json=/home/alan/workspaces/c_compiler2/archlinux32/fs.json
-hash_dir=/home/alan/workspaces/c_compiler2/archlinux32/arch

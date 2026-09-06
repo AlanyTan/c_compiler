@@ -1,0 +1,11 @@
+#!/usr/bin/bash
+
+build() {
+    add_runscript
+}
+
+help() {
+    cat <<'EOF'
+Mount v86's host9p device as the root filesystem.
+EOF
+}

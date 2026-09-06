@@ -1,0 +1,15 @@
+#!/usr/bin/ash
+
+run_hook() {
+    mount_handler="mount_9p_root"
+}
+
+mount_9p_root() {
+    local options="${rootflags:-trans=virtio,cache=loose}"
+
+    msg ":: mounting 9p root on '$1'"
+    if ! mount -t 9p -o "$options" host9p "$1"; then
+        err "Unable to mount the v86 9p root filesystem"
+        launch_interactive_shell
+    fi
+}
