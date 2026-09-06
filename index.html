@@ -8,7 +8,7 @@
     <!-- Bootstrap CSS -->
     <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet" />
     <link href="css/default.css" rel="stylesheet" />
-    <link href="vendor/xterm/packages/xterm/css/xterm.css" rel="stylesheet" />
+    <link href="xterm/packages/xterm/css/xterm.css" rel="stylesheet" />
 
     <!-- ACE Editor CSS -->
     <style>
@@ -163,6 +163,15 @@
         }
       }
 
+      /* Override h4 margins inside panel headings */
+      .panel-heading h4 {
+        margin: 1px 10px 5px 0px;
+        color: #555555;
+      }
+      .panel-heading h5 {
+        margin: 1px 10px 1px 0px;
+        color: #555555;
+      }
     </style>
   </head>
   <body>
@@ -352,19 +361,23 @@
           </div>
 
           <!-- System Status Panel -->
-          <div class="status-panel">
-            <h5>系统状态</h5>
-            <div class="row">
-              <div class="col-md-6">
-                <strong>CPU:</strong> <span id="cpu-info">x86 虚拟处理器</span
-                ><br />
-                <strong>内存:</strong> <span id="ram-info"></span
-                ><br />
-              </div>
-              <div class="col-md-6">
-                <strong>编译器:</strong> <span id="compiler-info">GCC 15.2.1</span>
-                <br />
-                <strong>状态:</strong> <span id="vm-status">初始化中</span>
+          <div class="panel panel-default">
+            <div class="panel-heading">
+              <h5>系统状态</h5>
+            </div>
+            <div class="panel-body">
+              <div class="row">
+                <div class="col-md-6">
+                  <strong>CPU:</strong> <span id="cpu-info">x86 虚拟处理器</span
+                  ><br />
+                  <strong>内存:</strong> <span id="ram-info"></span
+                  ><br />
+                </div>
+                <div class="col-md-6">
+                  <strong>编译器:</strong> <span id="compiler-info">GCC 15.2.1</span>
+                  <br />
+                  <strong>状态:</strong> <span id="vm-status">初始化中</span>
+                </div>
               </div>
             </div>
           </div>
@@ -475,8 +488,8 @@
     <script src="ace-editor-src-min-noconflict/theme-monokai.js"></script>
     <script src="ace-editor-src-min-noconflict/ext-language_tools.js"></script>
     <script src="ace-editor-src-min-noconflict/ext-beautify.js"></script>
-    <script src="vendor/xterm/packages/xterm/lib/xterm.js"></script>
-    <script src="vendor/xterm/packages/addon-fit/lib/addon-fit.js"></script>
+    <script src="xterm/packages/xterm/lib/xterm.js"></script>
+    <script src="xterm/packages/addon-fit/lib/addon-fit.js"></script>
 
     <script>
       const ARCH_CMDLINE = [
@@ -1861,8 +1874,39 @@ int main(void) {
       }
 
       /**
+       * Convert Latin-1 string (where each char represents a byte) back to UTF-8 string
+       */
+      function latin1ToUtf8(latin1String) {
+        const bytes = [];
+        for (let i = 0; i < latin1String.length; i++) {
+          bytes.push(latin1String.charCodeAt(i));
+        }
+        return new TextDecoder().decode(new Uint8Array(bytes));
+      }
+
+      /**
+       * Strip ANSI escape codes from text
+       */
+      function stripAnsiCodes(text) {
+        // Remove \x1b[...letter sequences (CSI - Control Sequence Introducer)
+        text = text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+        
+        // Remove \x1b]...BEL sequences (OSC - Operating System Command)
+        text = text.replace(/\x1b\][^\x07]*\x07/g, '');
+        
+        // Remove [...letter sequences if ESC char was already stripped
+        text = text.replace(/\[\??\d*[A-Za-z]/g, '');
+        
+        // Remove ]... sequences (incomplete OSC with missing ESC)
+        text = text.replace(/\][^[\n]*/g, '');
+        
+        return text;
+      }
+
+      /**
        * Wait for a compile-completion marker in serial output.
-       * Returns the shell exit code (0 = success).
+       * Extracts the return code from the marker and returns it.
+       * Returns the shell exit code (0 = success, non-zero = failure).
        */
       function waitForCompileMarker(markerId, startPos, timeoutMs) {
         if (timeoutMs === undefined) timeoutMs = 60000;
@@ -1873,13 +1917,27 @@ int main(void) {
 
           var check = setInterval(function () {
             var recent = serialOutput.substring(startPos);
-            // Match marker followed by a digit — distinguishes the real
-            // output from the echoed command (which shows literal $?)
-            var re = new RegExp("##Compile_" + markerId + " DONE## (\\d+)");
+            
+            // Match marker with embedded return code: ##Compile_[ID] Returned=[code]##
+            var re = new RegExp("##Compile_" + markerId + " Returned:(\\d+)##");
             var match = recent.match(re);
             if (match) {
               clearInterval(check);
-              resolve(parseInt(match[1]));
+              var exitCode = parseInt(match[1]);
+              
+              // If compilation failed, extract and show error output
+              if (exitCode !== 0) {
+                // Get all compiler output before the marker
+                const marker = "##Compile_" + markerId + " Returned:";
+                var cmdPos = recent.indexOf(marker) + (marker+"$?## ").length;
+                var markerPos = recent.indexOf(marker, cmdPos);
+                var compilerOutput = recent.substring(cmdPos, markerPos).trim();
+                // Strip ANSI escape codes for clean display
+                var cleanOutput = stripAnsiCodes(latin1ToUtf8(compilerOutput));
+                document.getElementById('error-output').textContent = cleanOutput;
+                document.getElementById('error-panel').style.display = 'block';
+              }
+              resolve(exitCode);
             } else if (Date.now() - startTime > timeoutMs) {
               clearInterval(check);
               reject(new Error("编译超时 (" + (timeoutMs / 1000) + "s)"));
@@ -2152,7 +2210,7 @@ int main(void) {
         const compileCmd = [
         // "echo 3 > /proc/sys/vm/drop_caches 2>/dev/null",
           "cd " + VM_SRC_ROOT,
-          "gcc " + flags + " " + relPath + " -o " + outputFile + " 2>&1 && echo '##Compile_" + markerId + " DONE##' $?",
+          "gcc " + flags + " " + relPath + " -o " + outputFile + " 2>&1; echo \"##Compile_" + markerId + " Returned:$?##\"",
         ].join("\n ");
 
         const startPos = serialOutput.length;
@@ -2165,6 +2223,7 @@ int main(void) {
           updateSystemStatus("编译失败", "danger");
         } else {
           updateSystemStatus("编译完成", "success");
+          hideErrorPanel(); // Clear error display on successful compilation
         }
         return exitCode;
       }
