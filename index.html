@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>C 编译器 - V86 现代版本</title>
+    <title>C语言开发环境  -  v86网页版</title>
 
     <!-- Bootstrap CSS -->
     <link href="bootstrap/css/bootstrap.min.css" rel="stylesheet" />
@@ -181,7 +181,7 @@
           <nav class="navbar navbar-default">
             <div class="container-fluid">
               <div class="navbar-header">
-                <span class="navbar-brand">C 编译器 - V86 现代版本</span>
+                <span class="navbar-brand">C语言开发环境  -  v86网页版</span>
               </div>
               <div class="navbar-collapse">
                 <div class="navbar-text navbar-right">
@@ -321,7 +321,7 @@
         <div class="col-md-6">
           <div class="panel panel-default">
             <div class="panel-heading">
-              <h4>终端输出</h4>
+              <h4>v86终端输出</h4>
               <div class="btn-group" role="group">
                 <button
                   type="button"
@@ -355,8 +355,8 @@
               </div>
             </div>
             <div class="panel-body">
-              <div id="terminal" title="点击此处聚焦，然后可直接输入命令"></div>
-              <small class="text-muted">提示: 点击终端窗口后可直接输入命令</small>
+              <div id="terminal"></div>
+              <small class="text-muted">提示: 点击终端窗口,可直接输入Linux命令</small>
             </div>
           </div>
 
@@ -925,11 +925,16 @@
       const DEFAULT_C_CODE = `#include <stdio.h>
 
 int main(void) {
-    printf("In-Browser C compiler!\\n");                                                                    // 浏览器内 C 编译器！
-    printf("Use the editor (here) to write your C code and compile it in the browser.\\n");                 // 使用编辑器（此处）编写 C 代码并在浏览器中编译。
-    printf("Click 'Compile & Run' to execute your code in the virtual machine.\\n");                        // 点击"编译并运行"在虚拟机中执行你的代码。
-    printf("You can also use 'VM File' to load C files from the VM's /home/student/src directory.\\n");    // 你也可以使用"VM 文件"从虚拟机的 /home/student/src 目录加载 C 文件。
-    printf("Or use Upload/Download to transfer your code files from/to this browser C development environment.\\n"); // 或使用"上传/下载"在浏览器 C 开发环境之间传输代码文件。
+    printf("In-Browser C compiler!\\n");                                                                    
+    // 浏览器内 C 编译器！
+    printf("Use the editor (here) to write your C code and compile it in the browser.\\n");                 
+    // 使用编辑器（此处）编写 C 代码并在浏览器中编译。
+    printf("Click 'Compile & Run' to execute your code in the virtual machine.\\n");                        
+    // 点击"编译并运行"在虚拟机中执行你的代码。
+    printf("You can also use 'VM File' to load C files from the VM's /home/student/src directory.\\n");    
+    // 你也可以使用"VM 文件"从虚拟机的 /home/student/src 目录加载 C 文件。
+    printf("Or use Upload/Download to transfer your code files from/to this browser C development environment.\\n"); 
+    // 或使用"上传/下载"在浏览器 C 开发环境之间传输代码文件。
     
     return 0;
 }`;
