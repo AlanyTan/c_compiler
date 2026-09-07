@@ -299,7 +299,7 @@
                   type="text"
                   class="form-control"
                   id="compiler-flags"
-                  value="-pipe -std=c23 -Wall -Wextra"
+                  value="-std=c23 -Wall -Wextra -Wconversion"
                   placeholder="输入 GCC 编译器选项"
                 />
               </div>
@@ -2203,12 +2203,7 @@ int main(void) {
 
         const parsed = parseRelativePath(relPath);
         const code = editor.getValue();
-        const configuredFlags = document.getElementById("compiler-flags").value.trim();
-        // Avoid GCC's intermediate files on the emulated filesystem. This is
-        // especially valuable for the cpp -> cc1 -> as pipeline under 9p.
-        const flags = /(^|\s)-pipe(\s|$)/.test(configuredFlags)
-          ? configuredFlags
-          : "-pipe " + configuredFlags;
+        const flags = document.getElementById("compiler-flags").value.trim();
         const vmPath = VM_SRC_ROOT + '/' + relPath;
 
         updateSystemStatus("正在保存文件...", "info");
@@ -2456,7 +2451,7 @@ int main(void) {
 
         // Replace existing standard flag or add new one
         const newFlags =
-          currentFlags.replace(/-std=c\d+/, "") + " -std=" + standard;
+          currentFlags.replace(/-std=c\d+/, "-std=" + standard);
         document.getElementById("compiler-flags").value = newFlags.trim();
       }
 
