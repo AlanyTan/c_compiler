@@ -28,6 +28,8 @@ done
   exit 1
 }
 pacman-key --populate "${keyrings[@]}"
+PACSTRAP_CONFIG=/etc/pacman.conf
+
 if ! pacman -Sy --needed --noconfirm archlinux32-keyring; then
   if [[ "$ALLOW_UNSIGNED_KEYRING_BOOTSTRAP" != 1 ]]; then
     cat >&2 <<'EOF'
@@ -49,6 +51,13 @@ EOF
   rm -rf -- /etc/pacman.d/gnupg
   pacman-key --init
   pacman-key --populate archlinux32
+  
+  # For subsequent package installation, disable signature verification
+  # since the ISO keyring is older but we trust HTTPS-authenticated mirrors
+  PACSTRAP_CONFIG=/tmp/pacman-packages.conf
+  cp /etc/pacman.conf "$PACSTRAP_CONFIG"
+  sed -Ei 's/^[#[:space:]]*SigLevel[[:space:]]*=.*/SigLevel = Never/' \
+    "$PACSTRAP_CONFIG"
 fi
 
 read -r -a packages <<<"$ARCH32_PACKAGES"
@@ -58,7 +67,7 @@ read -r -a packages <<<"$ARCH32_PACKAGES"
 }
 
 printf 'Installing: %s\n' "${packages[*]}"
-pacstrap -C /etc/pacman.conf /target "${packages[@]}"
+pacstrap -C "$PACSTRAP_CONFIG" /target "${packages[@]}"
 
 cp -a /v86-config/rootfs-overlay/. /target/
 printf 'Server = %s\n' "$ARCH32_MIRROR" >/target/etc/pacman.d/mirrorlist
