@@ -541,7 +541,10 @@
         "archlinux32/archlinux-x86_64.iso",
       ];
 
-      const ENABLE_VGA_CONSOLE = false;
+      // Parse URL query parameters to enable features
+      // Usage: ?ENABLE_VGA=true to enable VGA console
+      const urlParams = new URLSearchParams(window.location.search);
+      const ENABLE_VGA_CONSOLE = urlParams.has('ENABLE_VGA') && urlParams.get('ENABLE_VGA').toLowerCase() !== 'false';
 
       // Must match the shipped snapshot. For a new copy.sh-style snapshot,
       // cold-boot at 512 MB, save it, then update this value with that state.
@@ -776,9 +779,6 @@
         const v86Config = {
           wasm_path: "build/v86.wasm",
           memory_size: VM_RAM_MB * 1024 * 1024,
-          bios: {
-            url: "bios/seabios.bin",
-          },
           autostart: true,
           acpi: false,
           fastboot: true,
@@ -790,6 +790,7 @@
           // `null` selects v86's default NE2000 device. In this pinned build,
           // a non-device type keeps the constructor from instantiating a NIC.
           net_device: { type: "none" },
+          //net_device: { type: "ne2k", relay_url: "inbrowser" },
           log_level: 0,
         };
 
@@ -815,6 +816,9 @@
           v86Config.filesystem = {
             baseurl: assets.filesystemBundle.baseurl,
           };
+          v86Config.bios = {
+            url: "bios/seabios.bin",
+          };
         }
 
         if (plan.mode === "cold-9p") {
@@ -822,11 +826,23 @@
             baseurl: assets.filesystemBundle.baseurl,
             basefs: assets.filesystemBundle.basefs,
           };
-          v86Config.bzimage_initrd_from_filesystem = true;
           v86Config.cmdline = ARCH_CMDLINE;
+          
+          // Kernel and initramfs are already indexed in fs.json under /boot/
+          // Tell v86 to extract them from the 9p filesystem, not as external URLs
+          v86Config.bzimage_initrd_from_filesystem = true;
+          
+          // Load SeaBIOS for VGA initialization. v86 will boot directly from
+          // kernel/initramfs in filesystem without BIOS device attempts.
+          v86Config.bios = {
+            url: "bios/seabios.bin",
+          };
         }
 
         if (plan.mode === "disk") {
+          v86Config.bios = {
+            url: "bios/seabios.bin",
+          };
           v86Config.hda = {
             url: assets.diskImage.path,
             async: false,
@@ -835,6 +851,9 @@
         }
 
         if (plan.mode === "iso") {
+          v86Config.bios = {
+            url: "bios/seabios.bin",
+          };
           v86Config.boot_order = 0x132;
           v86Config.cdrom = { url: assets.isoImage.path };
         }

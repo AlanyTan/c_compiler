@@ -69,7 +69,6 @@ read -r -a packages <<<"$ARCH32_PACKAGES"
 printf 'Installing: %s\n' "${packages[*]}"
 pacstrap -C "$PACSTRAP_CONFIG" /target "${packages[@]}"
 
-cp -a /v86-config/rootfs-overlay/. /target/
 printf 'Server = %s\n' "$ARCH32_MIRROR" >/target/etc/pacman.d/mirrorlist
 printf 'Architecture = i686\n' >/target/etc/v86-image-build
 printf 'Packages = %s\n' "$ARCH32_PACKAGES" >>/target/etc/v86-image-build
@@ -91,7 +90,12 @@ arch-chroot /target /usr/bin/passwd -d root
 
 case "$V86_INIT_SYSTEM" in
   minimal)
-    ln -sfn /usr/local/sbin/v86-init /target/usr/bin/init
+    # Remove the /sbin symlink and create it as a real directory, then place init there
+    # Use absolute symlink so it works both before switch_root (checks from initramfs)
+    # and after switch_root (when / becomes the 9p root)
+    rm -f /target/sbin
+    mkdir -p /target/sbin
+    ln -sfn /usr/local/sbin/v86-init /target/sbin/init
     ;;
   systemd)
     ;;
