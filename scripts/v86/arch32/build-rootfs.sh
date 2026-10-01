@@ -84,6 +84,30 @@ sed -Ei "s|^[#[:space:]]*MODULES=.*|MODULES=($module_line)|" /target/etc/mkinitc
 sed -Ei 's|^[#[:space:]]*HOOKS=.*|HOOKS=(base udev modconf block filesystems 9p_root)|' /target/etc/mkinitcpio.conf
 sed -Ei 's|^[#[:space:]]*COMPRESSION=.*|COMPRESSION="zstd"|' /target/etc/mkinitcpio.conf
 
+mkdir -p /target/usr/lib/initcpio/hooks /target/usr/lib/initcpio/install
+cat >/target/usr/lib/initcpio/hooks/9p_root <<'EOF'
+run_hook() {
+    mount_handler="mount_9p_root"
+}
+
+mount_9p_root() {
+    msg ":: mounting '$root' on real root (9p)"
+    if ! mount -t 9p host9p "$1"; then
+        echo "You are now being dropped into an emergency shell."
+        launch_interactive_shell
+        msg "Trying to continue (this will most likely fail) ..."
+    fi
+}
+EOF
+
+cat >/target/usr/lib/initcpio/install/9p_root <<'EOF'
+#!/bin/bash
+build() {
+    add_runscript
+}
+EOF
+chmod 0755 /target/usr/lib/initcpio/install/9p_root
+
 mkdir -p /target/home/student/src /target/root
 chmod 0755 /target/home /target/home/student /target/home/student/src
 arch-chroot /target /usr/bin/passwd -d root

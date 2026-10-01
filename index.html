@@ -789,8 +789,8 @@
           uart3: false,
           // `null` selects v86's default NE2000 device. In this pinned build,
           // a non-device type keeps the constructor from instantiating a NIC.
-          net_device: { type: "none" },
-          //net_device: { type: "ne2k", relay_url: "inbrowser" },
+          //net_device: { type: "none" },
+          net_device: { type: "virtio", relay_url: "inbrowser" },
           log_level: 0,
         };
 
