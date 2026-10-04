@@ -130,7 +130,11 @@ mount -t sysfs sysfs /sys 2>/dev/null || true
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
 mount -t tmpfs tmpfs /run 2>/dev/null || true
 
-exec /bin/bash --login -i
+# Start a proper serial login on ttyS0 so bash has a controlling TTY and
+# job control is initialized correctly. A bare bash process started without
+# a real tty triggers the "cannot set terminal process group" / "no job
+# control" warnings seen in the browser VM.
+exec /usr/bin/setsid /usr/bin/agetty --autologin root --noclear --keep-baud 115200 ttyS0 vt100
 EOF
     chmod 0755 /target/usr/local/sbin/v86-init
 
