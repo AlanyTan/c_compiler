@@ -114,12 +114,55 @@ arch-chroot /target /usr/bin/passwd -d root
 
 case "$V86_INIT_SYSTEM" in
   minimal)
-    # Remove the /sbin symlink and create it as a real directory, then place init there
-    # Use absolute symlink so it works both before switch_root (checks from initramfs)
-    # and after switch_root (when / becomes the 9p root)
+    # The mkinitcpio pre-check runs before switch_root and evaluates /new_root/sbin/init
+    # in the current initramfs namespace. A relative link resolves against /new_root/sbin,
+    # which is valid in both the pre-switch_root check and the post-switch_root namespace.
+    # An absolute link resolves against the initramfs root before switch_root, which does
+    # not contain /usr/local/sbin and therefore fails the check even when the real rootfs
+    # has a valid /usr/local/sbin/v86-init.
+    mkdir -p /target/usr/local/sbin /target/sbin
+    cat >/target/usr/local/sbin/v86-init <<'EOF'
+#!/bin/bash
+set -eu
+
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mount -t tmpfs tmpfs /run 2>/dev/null || true
+
+exec /bin/bash --login -i
+EOF
+    chmod 0755 /target/usr/local/sbin/v86-init
+
     rm -f /target/sbin
     mkdir -p /target/sbin
-    ln -sfn /usr/local/sbin/v86-init /target/sbin/init
+    ln -sfn ../usr/local/sbin/v86-init /target/sbin/init
+
+    if [[ ! -L /target/sbin/init ]]; then
+      printf 'minimal init: /target/sbin/init is not a symlink\n' >&2
+      exit 1
+    fi
+
+    init_link=$(readlink /target/sbin/init)
+    case "$init_link" in
+      /*)
+        printf 'minimal init: refusing absolute symlink %q; use a relative symlink for mkinitcpio pre-check compatibility\n' "$init_link" >&2
+        exit 1
+        ;;
+      *)
+        ;;
+    esac
+
+    if [[ ! -x /target/usr/local/sbin/v86-init ]]; then
+      printf 'minimal init: %s does not exist or is not executable\n' '/target/usr/local/sbin/v86-init' >&2
+      exit 1
+    fi
+
+    resolved=$(readlink -f -- /target/sbin/init)
+    if [[ "$resolved" != "/target/usr/local/sbin/v86-init" ]]; then
+      printf 'minimal init: expected /target/sbin/init -> /target/usr/local/sbin/v86-init, got %s\n' "$resolved" >&2
+      exit 1
+    fi
     ;;
   systemd)
     ;;

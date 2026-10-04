@@ -146,12 +146,46 @@ done
 
 [[ -z "$ISO_PATH" || -z "$SFS_PATH" ]] || die "use either --iso or --sfs, not both"
 
+validate_sfs_file() {
+  local path=$1
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  trap 'rm -rf -- "$tmpdir"' RETURN
+
+  if ! docker run --rm \
+    --mount "type=bind,src=$path,dst=/input/airootfs.sfs,readonly" \
+    --mount "type=bind,src=$tmpdir,dst=/out" \
+    alpine:3.22 \
+    /bin/sh -euxc '
+      apk add --no-cache squashfs-tools >/dev/null 2>&1
+      unsquashfs -no-progress -d /out/extract /input/airootfs.sfs >/dev/null 2>&1
+    '; then
+    rm -rf -- "$tmpdir"
+    trap - RETURN
+    return 1
+  fi
+
+  rm -rf -- "$tmpdir"
+  trap - RETURN
+  return 0
+}
+
 if [[ -z "$ISO_PATH" && -z "$SFS_PATH" ]]; then
-  if [[ -f "$REPO_ROOT/.tmp/arch-9p-build/airootfs.sfs" ]]; then
-    SFS_PATH="$REPO_ROOT/.tmp/arch-9p-build/airootfs.sfs"
-    printf 'Using cached Arch32 bootstrap: %s\n' "$SFS_PATH"
-  else
-    die "provide an Arch Linux 32 installer with --iso or --sfs"
+  cached_sfs="$REPO_ROOT/.tmp/arch-9p-build/airootfs.sfs"
+  if [[ -f "$cached_sfs" ]]; then
+    printf 'Found a cached Arch32 bootstrap at %s, but automatic reuse is disabled.\n' "$cached_sfs" >&2
+    printf 'Run with --sfs %s to reuse it explicitly, or provide a fresh --iso/--sfs.\n' "$cached_sfs" >&2
+  fi
+  die "provide an Arch Linux 32 installer with --iso or --sfs"
+fi
+
+if [[ -n "$SFS_PATH" ]]; then
+  SFS_PATH=$(absolute_path "$SFS_PATH")
+  [[ -f "$SFS_PATH" ]] || die "SquashFS image not found: $SFS_PATH"
+  if ! validate_sfs_file "$SFS_PATH"; then
+    printf 'The provided SquashFS image is corrupt or unreadable: %s\n' "$SFS_PATH" >&2
+    printf 'Provide a fresh Arch Linux 32 airootfs.sfs or a valid ISO.\n' >&2
+    exit 1
   fi
 fi
 
