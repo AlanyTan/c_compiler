@@ -21,6 +21,7 @@ ENABLE_VGA=0
 KEEP_WORK=0
 KEEP_BOOTSTRAP_IMAGE=0
 ALLOW_UNSIGNED_KEYRING_BOOTSTRAP=0
+REBUILD=0
 
 usage() {
   cat <<'EOF'
@@ -134,6 +135,10 @@ while (($#)); do
       ALLOW_UNSIGNED_KEYRING_BOOTSTRAP=1
       shift
       ;;
+    --rebuild)
+      REBUILD=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -144,7 +149,9 @@ while (($#)); do
   esac
 done
 
-[[ -z "$ISO_PATH" || -z "$SFS_PATH" ]] || die "use either --iso or --sfs, not both"
+if [[ -n "$ISO_PATH" && -n "$SFS_PATH" ]]; then
+  die "use either --iso or --sfs, not both"
+fi
 
 validate_sfs_file() {
   local path=$1
@@ -198,6 +205,10 @@ require_command sha256sum
 
 OUTPUT_DIR=$(absolute_path "$OUTPUT_DIR")
 WORK_ROOT=$(absolute_path "$WORK_ROOT")
+if [[ "$REBUILD" -ne 0 ]]; then
+  rm -rf -- "$WORK_ROOT/runs" "$WORK_ROOT/cache/v86-$V86_REF" "$OUTPUT_DIR"
+fi
+
 [[ ! -e "$OUTPUT_DIR" ]] || die "output already exists: $OUTPUT_DIR"
 
 if [[ -n "$ISO_PATH" ]]; then

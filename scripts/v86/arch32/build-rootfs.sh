@@ -108,9 +108,10 @@ build() {
 EOF
 chmod 0755 /target/usr/lib/initcpio/install/9p_root
 
-mkdir -p /target/home/student/src /target/root
-chmod 0755 /target/home /target/home/student /target/home/student/src
+mkdir -p /target/root
+chmod 0755 /target/home /target/root
 arch-chroot /target /usr/bin/passwd -d root
+/usr/bin/env bash /v86-config/create-student.sh --target /target --source /v86-config/c_src
 
 case "$V86_INIT_SYSTEM" in
   minimal)
@@ -134,7 +135,7 @@ mount -t tmpfs tmpfs /run 2>/dev/null || true
 # job control is initialized correctly. A bare bash process started without
 # a real tty triggers the "cannot set terminal process group" / "no job
 # control" warnings seen in the browser VM.
-exec /usr/bin/setsid /usr/bin/agetty --autologin root --noclear --keep-baud 115200 ttyS0 vt100
+exec /usr/bin/setsid /usr/bin/agetty --autologin student --noclear --keep-baud 115200 ttyS0 vt100
 EOF
     chmod 0755 /target/usr/local/sbin/v86-init
 
