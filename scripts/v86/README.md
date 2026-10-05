@@ -115,43 +115,21 @@ mirror is rolling, however. For byte-for-byte repeatability, point `--mirror`
 at an Arch32 archive date and retain `build-info.txt` with the output.
 
 ## NOTE:
-The 9p boot has a weird issue: it boots, but into a half state: 
+### 1. build the v86 VM 9p file system for deployment
+call this script from the project root: 
+```bash
+cd /workspaces/c_compiler
+scripts/v86/build-arch32-9p.sh --allow-unsigned-keyring-bootstrap --iso ~/Downloads/archlinux32-2024.07.10-i686.iso --rebuild
+#check build was successful, then
+cp -r archlinux32/generated/* archlinux32/
 ```
-[ 0.131000] ACPI BIOS Error (bug): A valid RSDP was not found (20250807/tbxfroot-222)
-[ 0.186700] IOAPIC[0]: Unable to change apic_id!
-[ 0.187200] MPTABLE: no processors registered!
-[ 0.187299] BIOS bug, MP table errors detected!...
-[ 5.112366] mce: Unable to init MCE device (rc: -5)
-:: running early hook [udev]
-Starting systemd-udevd version 259.5-1.0-arch
-:: running hook [udev]
-:: Triggering uevents...
-:: running hook [9p_root]
-:: mounting 9p root on '/new_root'
-:: replacing init from 9p root
-:: running cleanup hook [udev]
-ERROR: Root device mounted successfully, but /sbin/init does not exist.
-Bailing out, you are on your own. Good luck.
-
-sh: can't access tty; job control turned off
-[rootfs ~]# df
-Filesystem 1K-blocks Used Available Use% Mounted on
-dev 102232 0 102232 0% /dev
-run 116764 4 116760 0% /run
-host9p 268435456 636272 267799184 0% /new_root
-[rootfs ~]# df /
-Filesystem 1K-blocks Used Available Use% Mounted on
-df: /: can't find mount point
-[rootfs ~]# ls -l /sbin/init
-lrwxrwxrwx 1 0 0 32 Sep 30 01:27 /sbin/init -> new_root/usr/local/sbin/v86-init
-[rootfs ~]# ls -l /new_root/sbin/init
-lrwxrwxrwx 1 0 0 0 Sep 30 00:52 /new_root/sbin/init -> /usr/local/sbin/v86-init
-[rootfs ~]#
-```
-What we need to do is: 
+This will build the 9p root file system for the v86 arch linux VM, if everything works, put copy the generated to archlinux32 dir. 
+ 
+### 2. zip for deployment
+To prepare the deployable contents, build a zip file with the following command: 
+```bash
+cd /workspaces/c_compiler # Or whereever you put the project root
+zip -x "scripts/*" -x "archlinux32/generated/*" -r /tmp/deploy_c_compiler.zip *
 
 ```
-[rootfs ~]# switch_root /new_root /sbin/init
-```
-this will switch to the 9p filesystem. 
-
+This will create a zip file that contains all runtime files that can be uploaded to AWS Amplify.
